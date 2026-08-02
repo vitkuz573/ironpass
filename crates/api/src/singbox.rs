@@ -1,12 +1,10 @@
 //! Generate sing-box JSON configuration from a `ProxyNode`.
 
+#[allow(unused_imports)]
 use ironpass_core::models::{Protocol, ProxyNode, Security, Transport, XhttpExtra};
 use serde::Serialize;
 use serde_json::{Map, Value};
-use std::collections::HashMap;
 
-const DEFAULT_SOCKS_PORT: u16 = 11080;
-const DEFAULT_HTTP_PORT: u16 = 11080;
 const DEFAULT_MIXED_PORT: u16 = 11080;
 
 /// Generated sing-box config along with exposed local ports.
@@ -308,13 +306,14 @@ fn build_transport(node: &ProxyNode, outbound: &mut Map<String, Value>) -> anyho
                     .iter()
                     .map(|(k, v)| (k.clone(), Value::String(v.clone())))
                     .collect();
-                let existing = t
+                if let Some(existing) = t
                     .entry("headers")
                     .or_insert_with(|| Value::Object(Map::new()))
                     .as_object_mut()
-                    .unwrap_or(&mut Map::new());
-                for (k, v) in headers {
-                    existing.insert(k, v);
+                {
+                    for (k, v) in headers {
+                        existing.insert(k, v);
+                    }
                 }
             }
         }
@@ -384,6 +383,7 @@ fn dns() -> Value {
 mod tests {
     use super::*;
     use ironpass_core::models::{Protocol, Security, Transport};
+    use std::collections::HashMap;
 
     fn sample_vless_reality() -> ProxyNode {
         ProxyNode {

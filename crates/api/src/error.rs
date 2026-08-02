@@ -6,7 +6,6 @@ use axum::{
     Json,
 };
 use ironpass_core::Error as CoreError;
-use serde::Serialize;
 use serde_json::json;
 
 #[derive(Debug, thiserror::Error)]
@@ -28,11 +27,6 @@ pub enum ApiError {
 
     #[error("Internal error: {0}")]
     Internal(String),
-}
-
-#[derive(Serialize)]
-struct ErrorBody {
-    error: String,
 }
 
 impl IntoResponse for ApiError {

@@ -3,6 +3,7 @@
 use crate::singbox::SingBoxConfig;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::fs;
 use tokio::process::{Child, Command};
@@ -16,31 +17,35 @@ const BASE_BACKOFF: Duration = Duration::from_secs(1);
 #[derive(Debug)]
 pub struct SingBoxProcessManager {
     sing_box_path: Option<PathBuf>,
-    child: Mutex<Option<Child>>,
-    start_time: Mutex<Option<Instant>>,
-    last_error: Mutex<Option<String>>,
-    restart_count: Mutex<usize>,
+    child: Arc<Mutex<Option<Child>>>,
+    start_time: Arc<Mutex<Option<Instant>>>,
+    last_error: Arc<Mutex<Option<String>>>,
+    restart_count: Arc<Mutex<usize>>,
 }
 
 impl SingBoxProcessManager {
     pub fn new() -> Self {
         Self {
             sing_box_path: None,
-            child: Mutex::new(None),
-            start_time: Mutex::new(None),
-            last_error: Mutex::new(None),
-            restart_count: Mutex::new(0),
+            child: Arc::new(Mutex::new(None)),
+            start_time: Arc::new(Mutex::new(None)),
+            last_error: Arc::new(Mutex::new(None)),
+            restart_count: Arc::new(Mutex::new(0)),
         }
     }
 
     pub fn with_path(path: PathBuf) -> Self {
         Self {
             sing_box_path: Some(path),
-            child: Mutex::new(None),
-            start_time: Mutex::new(None),
-            last_error: Mutex::new(None),
-            restart_count: Mutex::new(0),
+            child: Arc::new(Mutex::new(None)),
+            start_time: Arc::new(Mutex::new(None)),
+            last_error: Arc::new(Mutex::new(None)),
+            restart_count: Arc::new(Mutex::new(0)),
         }
+    }
+
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.sing_box_path = Some(path);
     }
 
     /// Locate the sing-box binary. Uses configured path, then PATH.
@@ -103,10 +108,10 @@ impl SingBoxProcessManager {
         *self.restart_count.lock().await = 0;
 
         // Spawn monitor task.
-        let child_arc = self.child.clone();
-        let start_time_arc = self.start_time.clone();
-        let last_error_arc = self.last_error.clone();
-        let restart_count_arc = self.restart_count.clone();
+        let child_arc = Arc::clone(&self.child);
+        let start_time_arc = Arc::clone(&self.start_time);
+        let last_error_arc = Arc::clone(&self.last_error);
+        let restart_count_arc = Arc::clone(&self.restart_count);
         let config_json = config.json.clone();
         let bin_clone = bin.clone();
 
@@ -174,10 +179,10 @@ impl Default for SingBoxProcessManager {
 }
 
 async fn monitor(
-    child_arc: Mutex<Option<Child>>,
-    start_time_arc: Mutex<Option<Instant>>,
-    last_error_arc: Mutex<Option<String>>,
-    restart_count_arc: Mutex<usize>,
+    child_arc: Arc<Mutex<Option<Child>>>,
+    start_time_arc: Arc<Mutex<Option<Instant>>>,
+    last_error_arc: Arc<Mutex<Option<String>>>,
+    restart_count_arc: Arc<Mutex<usize>>,
     config_json: String,
     config_path: PathBuf,
     bin: PathBuf,
@@ -218,7 +223,10 @@ async fn monitor(
         drop(restart_count);
 
         let backoff = BASE_BACKOFF.mul_f32(2.0f32.powi(attempt as i32 - 1));
-        warn!("Restarting sing-box in {:?} (attempt {}/{})", backoff, attempt, MAX_RESTART_ATTEMPTS);
+        warn!(
+            "Restarting sing-box in {:?} (attempt {}/{})",
+            backoff, attempt, MAX_RESTART_ATTEMPTS
+        );
         sleep(backoff).await;
 
         // Rewrite config (path is reused).
@@ -240,7 +248,8 @@ async fn monitor(
                 sleep(Duration::from_millis(300)).await;
                 if child.try_wait().ok().flatten().is_some() {
                     error!("Restarted sing-box exited immediately");
-                    *last_error_arc.lock().await = Some("Restarted sing-box exited immediately".into());
+                    *last_error_arc.lock().await =
+                        Some("Restarted sing-box exited immediately".into());
                     let mut guard = child_arc.lock().await;
                     *guard = None;
                     break;

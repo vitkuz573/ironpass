@@ -2,14 +2,13 @@
 
 use crate::db::{import_legacy_subscriptions, DbPool};
 use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
-use crate::singbox::{generate_config, requires_singbox, InboundPorts, SingBoxConfig};
-use crate::singbox_process::{ProcessHandle, SingBoxProcessManager};
+use crate::singbox::{generate_config, requires_singbox, InboundPorts};
+use crate::singbox_process::SingBoxProcessManager;
 use ironpass_config::{AppConfig, ConfigManager};
-use ironpass_core::models::{ProxyNode, Subscription};
+use ironpass_core::models::Subscription;
 use ironpass_core::traits::HwidProvider;
 use ironpass_subscription::{FetchOptions, HttpSubscriptionFetcher, SubscriptionService};
 use reqwest::Client;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -270,7 +269,7 @@ impl AppState {
         };
         let config = generate_config(&node.node, singbox_ports)?;
 
-        let mut manager = self.process_manager.write().await;
+        let manager = self.process_manager.write().await;
         manager.stop().await.ok();
         manager.start(&config).await?;
 
@@ -287,7 +286,7 @@ impl AppState {
     }
 
     pub async fn stop_proxy(&self) -> anyhow::Result<ProxyStatus> {
-        let mut manager = self.process_manager.write().await;
+        let manager = self.process_manager.write().await;
         manager.stop().await?;
         let mut ports = self.proxy_ports.write().await;
         *ports = None;

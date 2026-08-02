@@ -90,8 +90,8 @@ impl DbPool {
                 sub.last_updated.map(|t| t.to_rfc3339()),
                 sub.is_active as i32,
                 serde_json::to_string(&sub.metadata).unwrap_or_else(|_| "{}".into()),
-                sub.traffic_used,
-                sub.traffic_total,
+                sub.traffic_used.map(|v| v as i64),
+                sub.traffic_total.map(|v| v as i64),
                 sub.expires_at.map(|t| t.to_rfc3339()),
             ],
         )?;
@@ -116,8 +116,8 @@ impl DbPool {
                 sub.last_updated.map(|t| t.to_rfc3339()),
                 sub.is_active as i32,
                 serde_json::to_string(&sub.metadata).unwrap_or_else(|_| "{}".into()),
-                sub.traffic_used,
-                sub.traffic_total,
+                sub.traffic_used.map(|v| v as i64),
+                sub.traffic_total.map(|v| v as i64),
                 sub.expires_at.map(|t| t.to_rfc3339()),
             ],
         )?;
@@ -138,11 +138,12 @@ impl DbPool {
                 added_at: parse_datetime(row.get(4)?),
                 last_updated: row.get::<_, Option<String>>(5)?.map(parse_datetime),
                 is_active: row.get::<_, i32>(6)? != 0,
-                metadata: row
-                    .get::<_, String>(7)
-                    .and_then(|s| serde_json::from_str(&s).unwrap_or_default()),
-                traffic_used: row.get(8)?,
-                traffic_total: row.get(9)?,
+                metadata: row.get::<_, String>(7).map_or_else(
+                    |_| SubscriptionMetadata::default(),
+                    |s| serde_json::from_str(&s).unwrap_or_default(),
+                ),
+                traffic_used: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                traffic_total: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
                 expires_at: row.get::<_, Option<String>>(10)?.map(parse_datetime),
             })
         })?;
@@ -164,17 +165,19 @@ impl DbPool {
                     added_at: parse_datetime(row.get(4)?),
                     last_updated: row.get::<_, Option<String>>(5)?.map(parse_datetime),
                     is_active: row.get::<_, i32>(6)? != 0,
-                    metadata: row
-                        .get::<_, String>(7)
-                        .and_then(|s| serde_json::from_str(&s).unwrap_or_default()),
-                    traffic_used: row.get(8)?,
-                    traffic_total: row.get(9)?,
-                    expires_at: row.get::<_, Option<String>>(10)?.map(parse_datetime),
-                })
+                metadata: row.get::<_, String>(7).map_or_else(
+                    |_| SubscriptionMetadata::default(),
+                    |s| serde_json::from_str(&s).unwrap_or_default(),
+                ),
+                traffic_used: row.get::<_, Option<i64>>(8)?.map(|v| v as u64),
+                traffic_total: row.get::<_, Option<i64>>(9)?.map(|v| v as u64),
+                expires_at: row.get::<_, Option<String>>(10)?.map(parse_datetime),
             })
-            .optional()?;
-        Ok(row)
-    }
+        })
+        .optional()?;
+    Ok(row)
+}
+
 
     pub fn delete_subscription(&self, id: Uuid) -> Result<bool, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
