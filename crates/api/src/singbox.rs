@@ -46,7 +46,8 @@ struct Route {
     #[serde(skip_serializing_if = "Option::is_none")]
     geosite: Option<Value>,
     auto_detect_interface: bool,
-    final_: &'static str,
+    #[serde(rename = "final")]
+    final_outbound: &'static str,
 }
 
 impl Default for Route {
@@ -55,7 +56,7 @@ impl Default for Route {
             geoip: None,
             geosite: None,
             auto_detect_interface: true,
-            final_: "proxy",
+            final_outbound: "proxy",
         }
     }
 }
@@ -255,8 +256,10 @@ fn build_transport(node: &ProxyNode, outbound: &mut Map<String, Value>) -> anyho
         Transport::Ws => "ws",
         Transport::Grpc => "grpc",
         Transport::H2 => "http",
-        Transport::Xhttp => "xhttp",
-        Transport::Splithttp => "splithttp",
+        // sing-box 1.13.x renamed "splithttp" to "httpupgrade". "xhttp" nodes
+        // from VLESS subscriptions use HTTP upgrade semantics, so map both here.
+        Transport::Xhttp => "httpupgrade",
+        Transport::Splithttp => "httpupgrade",
         Transport::Kcp => "kcp",
     };
 
@@ -364,17 +367,12 @@ fn block_outbound() -> Value {
     })
 }
 
+// Minimal DNS configuration compatible with sing-box 1.11.x through 1.13.x.
 fn dns() -> Value {
     serde_json::json!({
         "servers": [
-            { "tag": "google", "address": "tls://8.8.8.8" },
-            { "tag": "local", "address": "223.5.5.5", "detour": "direct" }
-        ],
-        "rules": [
-            { "outbound": "any", "server": "local" }
-        ],
-        "final": "google",
-        "strategy": "ipv4_only",
+            { "tag": "local", "type": "local" }
+        ]
     })
 }
 
@@ -426,6 +424,41 @@ mod tests {
     }
 
     #[test]
+    fn vless_xhttp_maps_to_http_transport() {
+        let mut node = sample_vless_reality();
+        node.transport = Transport::Xhttp;
+        node.security = Security::Tls;
+        node.path = Some("/xhttp".into());
+        node.host = Some("host.example.com".into());
+        node.extra = Some(XhttpExtra {
+            mode: Some("stream-up".into()),
+            max_connections: Some(4),
+            max_concurrent_uploads: Some(8),
+            no_grpc_header: Some(false),
+            x_padding_bytes: Some("100-200".into()),
+            headers: HashMap::new(),
+        });
+
+        let cfg = generate_config(
+            &node,
+            InboundPorts {
+                socks_port: Some(1080),
+                http_port: Some(8080),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
+        let proxy = outbounds.iter().find(|o| o.get("tag").unwrap() == "proxy").unwrap();
+        let transport = proxy.get("transport").unwrap();
+        assert_eq!(transport.get("type").unwrap(), "httpupgrade");
+        assert_eq!(transport.get("path").unwrap(), "/xhttp");
+        assert!(cfg.socks_port.is_some());
+        assert!(cfg.http_port.is_some());
+    }
+
+    #[test]
     fn vless_xhttp_config_contains_transport() {
         let mut node = sample_vless_reality();
         node.transport = Transport::Xhttp;
@@ -454,7 +487,7 @@ mod tests {
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds.iter().find(|o| o.get("tag").unwrap() == "proxy").unwrap();
         let transport = proxy.get("transport").unwrap();
-        assert_eq!(transport.get("type").unwrap(), "xhttp");
+        assert_eq!(transport.get("type").unwrap(), "httpupgrade");
         assert_eq!(transport.get("mode").unwrap(), "stream-up");
         assert!(value.get("inbounds").unwrap().as_array().unwrap().len() == 2);
     }
