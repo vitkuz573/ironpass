@@ -11,21 +11,19 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ConfigPage() {
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const data = await IronpassApi.getConfig();
       setConfig(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load config");
+      toast.error(err instanceof Error ? err.message : "Failed to load config");
     } finally {
       setLoading(false);
     }
@@ -41,13 +39,6 @@ export default function ConfigPage() {
         <h1 className="text-2xl font-bold tracking-tight">Config</h1>
         <p className="text-muted-foreground">Current application configuration.</p>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>

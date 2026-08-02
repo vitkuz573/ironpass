@@ -21,12 +21,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Play, Square, Server } from "lucide-react";
+import { Play, Square, Server } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ProxyPage() {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
 
   const [nodeId] = useState<string>("");
@@ -37,7 +37,6 @@ export default function ProxyPage() {
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const s = await IronpassApi.proxyStatus();
       setStatus(s);
@@ -46,7 +45,7 @@ export default function ProxyPage() {
       setMixedPort(s.mixed_port?.toString() ?? "");
       setBackend(s.backend ?? "auto");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load proxy status");
+      toast.error(err instanceof Error ? err.message : "Failed to load proxy status");
     } finally {
       setLoading(false);
     }
@@ -63,7 +62,9 @@ export default function ProxyPage() {
           setMixedPort(s.mixed_port?.toString() ?? "");
           setBackend(s.backend ?? "auto");
         })
-        .catch(console.error);
+        .catch((err) => {
+          toast.error(err instanceof Error ? err.message : "Failed to refresh proxy status");
+        });
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchStatus]);
@@ -71,7 +72,6 @@ export default function ProxyPage() {
   async function handleToggle() {
     if (!status) return;
     setActionLoading(true);
-    setError(null);
     try {
       const next = status.running
         ? await IronpassApi.stopProxy()
@@ -83,8 +83,9 @@ export default function ProxyPage() {
             backend,
           });
       setStatus(next);
+      toast.success(next.running ? "Proxy started" : "Proxy stopped");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Proxy action failed");
+      toast.error(err instanceof Error ? err.message : "Proxy action failed");
     } finally {
       setActionLoading(false);
     }
@@ -93,7 +94,6 @@ export default function ProxyPage() {
   async function handleStartWithSettings(e: React.FormEvent) {
     e.preventDefault();
     setActionLoading(true);
-    setError(null);
     try {
       const next = await IronpassApi.startProxy({
         node_id: nodeId || status?.selected_node?.id || null,
@@ -103,8 +103,9 @@ export default function ProxyPage() {
         backend,
       });
       setStatus(next);
+      toast.success("Proxy started");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start proxy");
+      toast.error(err instanceof Error ? err.message : "Failed to start proxy");
     } finally {
       setActionLoading(false);
     }
@@ -116,13 +117,6 @@ export default function ProxyPage() {
         <h1 className="text-2xl font-bold tracking-tight">Proxy</h1>
         <p className="text-muted-foreground">Control the local proxy service.</p>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       {loading ? (
         <Skeleton className="h-40 w-full" />

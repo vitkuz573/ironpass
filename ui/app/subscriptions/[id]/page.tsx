@@ -22,7 +22,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, ArrowLeft, Check, Play, RefreshCw, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, Play, RefreshCw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export default function SubscriptionDetailPage() {
   const params = useParams();
@@ -31,19 +33,18 @@ export default function SubscriptionDetailPage() {
 
   const [detail, setDetail] = useState<SubscriptionDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const fetchDetail = useCallback(async () => {
     if (!id) return;
     setLoading(true);
-    setError(null);
     try {
       const data = await IronpassApi.getSubscription(id);
       setDetail(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to load subscription");
     } finally {
       setLoading(false);
     }
@@ -57,20 +58,23 @@ export default function SubscriptionDetailPage() {
     if (!id) return;
     try {
       await IronpassApi.fetchSubscription(id, null);
+      toast.success("Subscription refreshed");
       await fetchDetail();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to refresh subscription");
     }
   }
 
   async function handleDelete() {
     if (!id) return;
-    if (!confirm("Delete this subscription?")) return;
     try {
       await IronpassApi.deleteSubscription(id);
+      toast.success("Subscription deleted");
       router.push("/subscriptions");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to delete subscription");
+    } finally {
+      setDeleteOpen(false);
     }
   }
 
@@ -79,8 +83,9 @@ export default function SubscriptionDetailPage() {
     try {
       await IronpassApi.selectNode(nodeId);
       setSelectedId(nodeId);
+      toast.success("Node selected");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to select node");
+      toast.error(err instanceof Error ? err.message : "Failed to select node");
     } finally {
       setSelectingId(null);
     }
@@ -107,19 +112,12 @@ export default function SubscriptionDetailPage() {
             <RefreshCw className="mr-2 size-4" />
             Refresh
           </Button>
-          <Button variant="destructive" onClick={handleDelete}>
+          <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
             <Trash2 className="mr-2 size-4" />
             Delete
           </Button>
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       {loading ? (
         <div className="space-y-4">
@@ -212,6 +210,17 @@ export default function SubscriptionDetailPage() {
       ) : (
         <div className="text-sm text-muted-foreground">Subscription not found.</div>
       )}
+
+      <ConfirmDialog
+        open={deleteOpen}
+        onOpenChange={setDeleteOpen}
+        title="Delete subscription"
+        description="Are you sure you want to delete this subscription? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDelete}
+        variant="destructive"
+      />
     </div>
   );
 }

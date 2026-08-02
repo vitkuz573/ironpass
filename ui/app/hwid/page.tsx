@@ -12,22 +12,23 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Fingerprint, RefreshCw } from "lucide-react";
+import { Fingerprint, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export default function HwidPage() {
   const [hwid, setHwid] = useState<HwidResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [regenerating, setRegenerating] = useState(false);
+  const [regenerateOpen, setRegenerateOpen] = useState(false);
 
   const fetchHwid = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const data = await IronpassApi.getHwid();
       setHwid(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load HWID");
+      toast.error(err instanceof Error ? err.message : "Failed to load HWID");
     } finally {
       setLoading(false);
     }
@@ -38,14 +39,14 @@ export default function HwidPage() {
   }, [fetchHwid]);
 
   async function handleRegenerate() {
-    if (!confirm("Regenerate HWID? This may invalidate existing subscriptions.")) return;
     setRegenerating(true);
-    setError(null);
     try {
       const data = await IronpassApi.regenerateHwid();
       setHwid(data);
+      setRegenerateOpen(false);
+      toast.success("HWID regenerated");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to regenerate HWID");
+      toast.error(err instanceof Error ? err.message : "Failed to regenerate HWID");
     } finally {
       setRegenerating(false);
     }
@@ -57,13 +58,6 @@ export default function HwidPage() {
         <h1 className="text-2xl font-bold tracking-tight">HWID</h1>
         <p className="text-muted-foreground">Hardware identifier and device info.</p>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <Card>
         <CardHeader>
@@ -106,7 +100,7 @@ export default function HwidPage() {
             <div className="text-sm text-muted-foreground">Unable to load HWID.</div>
           )}
           <div className="flex gap-2">
-            <Button onClick={handleRegenerate} disabled={regenerating || loading}>
+            <Button onClick={() => setRegenerateOpen(true)} disabled={regenerating || loading}>
               <RefreshCw className="mr-2 size-4" />
               {regenerating ? "Regenerating..." : "Regenerate HWID"}
             </Button>
@@ -116,6 +110,17 @@ export default function HwidPage() {
           </div>
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={regenerateOpen}
+        onOpenChange={setRegenerateOpen}
+        title="Regenerate HWID"
+        description="Regenerating your HWID may invalidate existing subscriptions. Are you sure?"
+        confirmText="Regenerate"
+        cancelText="Cancel"
+        onConfirm={handleRegenerate}
+        variant="destructive"
+      />
     </div>
   );
 }

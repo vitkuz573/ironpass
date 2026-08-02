@@ -38,26 +38,27 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, RefreshCw, Trash2, AlertCircle } from "lucide-react";
+import { Plus, MoreHorizontal, RefreshCw, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export default function SubscriptionsPage() {
   const [subscriptions, setSubscriptions] = useState<StoredSubscription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [addUrl, setAddUrl] = useState("");
   const [addName, setAddName] = useState("");
   const [addLoading, setAddLoading] = useState(false);
 
   const fetchSubscriptions = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const data = await IronpassApi.listSubscriptions();
       setSubscriptions(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load subscriptions");
+      toast.error(err instanceof Error ? err.message : "Failed to load subscriptions");
     } finally {
       setLoading(false);
     }
@@ -76,9 +77,10 @@ export default function SubscriptionsPage() {
       setAddUrl("");
       setAddName("");
       setAddOpen(false);
+      toast.success("Subscription added");
       await fetchSubscriptions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to add subscription");
     } finally {
       setAddLoading(false);
     }
@@ -87,19 +89,22 @@ export default function SubscriptionsPage() {
   async function handleRefresh(id: string) {
     try {
       await IronpassApi.fetchSubscription(id, null);
+      toast.success("Subscription refreshed");
       await fetchSubscriptions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to refresh subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to refresh subscription");
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this subscription?")) return;
+  async function handleDelete() {
+    if (!deleteId) return;
     try {
-      await IronpassApi.deleteSubscription(id);
+      await IronpassApi.deleteSubscription(deleteId);
+      setDeleteId(null);
+      toast.success("Subscription deleted");
       await fetchSubscriptions();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to delete subscription");
     }
   }
 
@@ -161,13 +166,6 @@ export default function SubscriptionsPage() {
           </Button>
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <Card>
         <CardHeader>
@@ -241,7 +239,7 @@ export default function SubscriptionsPage() {
                             <RefreshCw className="mr-2 size-4" /> Refresh
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => handleDelete(sub.id)}
+                            onClick={() => setDeleteId(sub.id)}
                             className="text-destructive focus:text-destructive"
                           >
                             <Trash2 className="mr-2 size-4" /> Delete
@@ -256,6 +254,17 @@ export default function SubscriptionsPage() {
           )}
         </CardContent>
       </Card>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Delete subscription"
+        description="Are you sure you want to delete this subscription? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDelete}
+        variant="destructive"
+      />
     </div>
   );
 }

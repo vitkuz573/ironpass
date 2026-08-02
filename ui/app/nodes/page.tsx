@@ -29,13 +29,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertCircle, Check, Play } from "lucide-react";
+import { Check, Play } from "lucide-react";
+import { toast } from "sonner";
 
 export default function NodesPage() {
   const [nodes, setNodes] = useState<NodeWithSubscription[]>([]);
   const [subscriptions, setSubscriptions] = useState<StoredSubscription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [selectingId, setSelectingId] = useState<string | null>(null);
@@ -43,7 +43,6 @@ export default function NodesPage() {
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const [n, subs] = await Promise.all([
         IronpassApi.listNodes(),
@@ -52,7 +51,7 @@ export default function NodesPage() {
       setNodes(n);
       setSubscriptions(subs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load nodes");
+      toast.error(err instanceof Error ? err.message : "Failed to load nodes");
     } finally {
       setLoading(false);
     }
@@ -84,8 +83,9 @@ export default function NodesPage() {
     try {
       await IronpassApi.selectNode(id);
       setSelectedId(id);
+      toast.success("Node selected");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to select node");
+      toast.error(err instanceof Error ? err.message : "Failed to select node");
     } finally {
       setSelectingId(null);
     }
@@ -102,13 +102,6 @@ export default function NodesPage() {
           Refresh
         </Button>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <Card>
         <CardHeader>

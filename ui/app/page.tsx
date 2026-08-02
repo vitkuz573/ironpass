@@ -32,16 +32,14 @@ import {
   Plus,
   Server,
   ArrowRight,
-  AlertCircle,
 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [proxy, setProxy] = useState<ProxyStatus | null>(null);
   const [subscriptions, setSubscriptions] = useState<StoredSubscription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [addOpen, setAddOpen] = useState(false);
   const [addUrl, setAddUrl] = useState("");
   const [addName, setAddName] = useState("");
@@ -49,7 +47,6 @@ export default function DashboardPage() {
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const [h, p, subs] = await Promise.all([
         IronpassApi.health().catch(() => null),
@@ -60,7 +57,7 @@ export default function DashboardPage() {
       setProxy(p);
       setSubscriptions(subs);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load dashboard");
+      toast.error(err instanceof Error ? err.message : "Failed to load dashboard");
     } finally {
       setLoading(false);
     }
@@ -69,7 +66,9 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchAll();
     const interval = setInterval(() => {
-      IronpassApi.proxyStatus().then(setProxy).catch(console.error);
+      IronpassApi.proxyStatus().then(setProxy).catch((err) => {
+        toast.error(err instanceof Error ? err.message : "Failed to refresh proxy status");
+      });
     }, 3000);
     return () => clearInterval(interval);
   }, [fetchAll]);
@@ -81,8 +80,9 @@ export default function DashboardPage() {
         ? await IronpassApi.stopProxy()
         : await IronpassApi.startProxy({});
       setProxy(next);
+      toast.success(next.running ? "Proxy started" : "Proxy stopped");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Proxy action failed");
+      toast.error(err instanceof Error ? err.message : "Proxy action failed");
     }
   }
 
@@ -95,9 +95,10 @@ export default function DashboardPage() {
       setAddUrl("");
       setAddName("");
       setAddOpen(false);
+      toast.success("Subscription added");
       await fetchAll();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add subscription");
+      toast.error(err instanceof Error ? err.message : "Failed to add subscription");
     } finally {
       setAddLoading(false);
     }
@@ -161,13 +162,6 @@ export default function DashboardPage() {
           </Button>
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Card>

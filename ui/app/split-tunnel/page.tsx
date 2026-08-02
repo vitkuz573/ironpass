@@ -42,13 +42,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { AlertCircle, Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
+import { toast } from "sonner";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 
 export default function SplitTunnelPage() {
   const [rules, setRules] = useState<SplitTunnelRule[]>([]);
   const [nodes, setNodes] = useState<NodeWithSubscription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [target, setTarget] = useState<SplitTunnelTarget>("domain");
   const [value, setValue] = useState("");
@@ -57,10 +58,10 @@ export default function SplitTunnelPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const [editing, setEditing] = useState<SplitTunnelRule | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    setError(null);
     try {
       const [r, n] = await Promise.all([
         IronpassApi.listSplitTunnelRules(),
@@ -69,7 +70,7 @@ export default function SplitTunnelPage() {
       setRules(r);
       setNodes(n);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load split tunnel rules");
+      toast.error(err instanceof Error ? err.message : "Failed to load split tunnel rules");
     } finally {
       setLoading(false);
     }
@@ -90,7 +91,6 @@ export default function SplitTunnelPage() {
     e.preventDefault();
     if (!value.trim()) return;
     setSubmitting(true);
-    setError(null);
     try {
       await IronpassApi.addSplitTunnelRule(
         target,
@@ -99,9 +99,10 @@ export default function SplitTunnelPage() {
         nodeId || null
       );
       resetForm();
+      toast.success("Rule added");
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to add rule");
+      toast.error(err instanceof Error ? err.message : "Failed to add rule");
     } finally {
       setSubmitting(false);
     }
@@ -111,7 +112,6 @@ export default function SplitTunnelPage() {
     e.preventDefault();
     if (!editing) return;
     setSubmitting(true);
-    setError(null);
     try {
       await IronpassApi.updateSplitTunnelRule(
         editing.id,
@@ -121,21 +121,24 @@ export default function SplitTunnelPage() {
         editing.node_id || null
       );
       setEditing(null);
+      toast.success("Rule updated");
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update rule");
+      toast.error(err instanceof Error ? err.message : "Failed to update rule");
     } finally {
       setSubmitting(false);
     }
   }
 
-  async function handleDelete(id: string) {
-    if (!confirm("Delete this rule?")) return;
+  async function handleDelete() {
+    if (!deleteId) return;
     try {
-      await IronpassApi.deleteSplitTunnelRule(id);
+      await IronpassApi.deleteSplitTunnelRule(deleteId);
+      setDeleteId(null);
+      toast.success("Rule deleted");
       await fetchData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete rule");
+      toast.error(err instanceof Error ? err.message : "Failed to delete rule");
     }
   }
 
@@ -145,13 +148,6 @@ export default function SplitTunnelPage() {
         <h1 className="text-2xl font-bold tracking-tight">Split Tunnel</h1>
         <p className="text-muted-foreground">Configure per-target routing rules.</p>
       </div>
-
-      {error && (
-        <div className="flex items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          <AlertCircle className="size-4" />
-          {error}
-        </div>
-      )}
 
       <Card>
         <CardHeader>
@@ -279,7 +275,7 @@ export default function SplitTunnelPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleDelete(rule.id)}
+                          onClick={() => setDeleteId(rule.id)}
                         >
                           <Trash2 className="size-4 text-destructive" />
                         </Button>
@@ -387,6 +383,17 @@ export default function SplitTunnelPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Delete rule"
+        description="Are you sure you want to delete this split tunnel rule? This action cannot be undone."
+        confirmText="Delete"
+        cancelText="Cancel"
+        onConfirm={handleDelete}
+        variant="destructive"
+      />
     </div>
   );
 }
