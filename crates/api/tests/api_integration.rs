@@ -1,7 +1,10 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use ironpass_api::db::DbPool;
-use ironpass_api::models::{AddSubscriptionRequest, StartProxyRequest};
+use ironpass_api::models::{
+    AddSplitTunnelRuleRequest, AddSubscriptionRequest, SplitTunnelAction, SplitTunnelTarget,
+    StartProxyRequest,
+};
 use ironpass_api::state::AppState;
 use ironpass_config::ConfigManager;
 use ironpass_core::traits::HwidProvider;
@@ -39,6 +42,12 @@ fn test_state() -> Arc<AppState> {
 
 fn app(state: Arc<AppState>) -> axum::Router {
     ironpass_api::app(state)
+}
+
+fn state_with_loaded_rules() -> Arc<AppState> {
+    let state = test_state();
+    state.load_split_tunnel_rules().unwrap();
+    state
 }
 
 #[tokio::test]
@@ -175,4 +184,89 @@ async fn start_proxy_without_selection_is_bad_request() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn split_tunnel_crud() {
+    let state = state_with_loaded_rules();
+    let router = app(state);
+
+    let add_body = serde_json::to_string(&AddSplitTunnelRuleRequest {
+        target: SplitTunnelTarget::Domain,
+        value: "example.com".into(),
+        action: SplitTunnelAction::Direct,
+        node_id: None,
+    })
+    .unwrap();
+
+    let add = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/split-tunnel")
+                .header("content-type", "application/json")
+                .body(Body::from(add_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(add.status(), StatusCode::OK);
+
+    let body_bytes = axum::body::to_bytes(add.into_body(), usize::MAX).await.unwrap();
+    let rule: ironpass_api::models::SplitTunnelRule = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(rule.value, "example.com");
+    let id = rule.id;
+
+    let list = router
+        .clone()
+        .oneshot(Request::builder().uri("/api/v1/split-tunnel").body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    assert_eq!(list.status(), StatusCode::OK);
+
+    let get = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!("/api/v1/split-tunnel/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get.status(), StatusCode::OK);
+
+    let update_body = serde_json::to_string(&AddSplitTunnelRuleRequest {
+        target: SplitTunnelTarget::Ip,
+        value: "1.2.3.4".into(),
+        action: SplitTunnelAction::Proxy,
+        node_id: None,
+    })
+    .unwrap();
+    let update = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri(format!("/api/v1/split-tunnel/{id}"))
+                .header("content-type", "application/json")
+                .body(Body::from(update_body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(update.status(), StatusCode::OK);
+
+    let delete = router
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri(format!("/api/v1/split-tunnel/{id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(delete.status(), StatusCode::OK);
 }

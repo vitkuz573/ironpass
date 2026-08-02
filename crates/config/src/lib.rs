@@ -172,6 +172,7 @@ pub struct SubscriptionsStore {
     pub subscriptions: Vec<StoredSubscription>,
 }
 
+#[derive(Clone)]
 pub struct ConfigManager {
     config_dir: PathBuf,
     data_dir: PathBuf,

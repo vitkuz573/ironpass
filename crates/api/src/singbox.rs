@@ -1,9 +1,12 @@
 //! Generate sing-box JSON configuration from a `ProxyNode`.
 
-#[allow(unused_imports)]
-use ironpass_core::models::{Protocol, ProxyNode, Security, Transport, XhttpExtra};
+use crate::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
+use ironpass_core::models::{Protocol, ProxyNode, Security, Transport};
 use serde::Serialize;
 use serde_json::{Map, Value};
+
+#[cfg(test)]
+use ironpass_core::models::XhttpExtra;
 
 const DEFAULT_MIXED_PORT: u16 = 11080;
 
@@ -45,6 +48,7 @@ struct Route {
     geoip: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     geosite: Option<Value>,
+    rules: Vec<Value>,
     auto_detect_interface: bool,
     #[serde(rename = "final")]
     final_outbound: &'static str,
@@ -55,6 +59,7 @@ impl Default for Route {
         Self {
             geoip: None,
             geosite: None,
+            rules: Vec::new(),
             auto_detect_interface: true,
             final_outbound: "proxy",
         }
@@ -73,7 +78,11 @@ pub fn requires_singbox(node: &ProxyNode) -> bool {
 }
 
 /// Generate a sing-box JSON config for `node` with the requested inbound ports.
-pub fn generate_config(node: &ProxyNode, ports: InboundPorts) -> anyhow::Result<SingBoxConfig> {
+pub fn generate_config(
+    node: &ProxyNode,
+    ports: InboundPorts,
+    rules: &[SplitTunnelRule],
+) -> anyhow::Result<SingBoxConfig> {
     let outbound = build_outbound(node)?;
 
     let mut inbounds = Vec::new();
@@ -106,7 +115,7 @@ pub fn generate_config(node: &ProxyNode, ports: InboundPorts) -> anyhow::Result<
         dns: Some(dns()),
         inbounds,
         outbounds: vec![outbound, direct_outbound(), block_outbound()],
-        route: Route::default(),
+        route: build_route(rules),
     };
 
     let json = serde_json::to_string_pretty(&root)?;
@@ -367,6 +376,55 @@ fn block_outbound() -> Value {
     })
 }
 
+fn build_route(rules: &[SplitTunnelRule]) -> Route {
+    let mut route_rules = Vec::with_capacity(rules.len());
+    for rule in rules {
+        let Some(value) = build_route_rule(rule) else {
+            tracing::warn!("Skipping unsupported split tunnel rule: {:?}", rule);
+            continue;
+        };
+        route_rules.push(value);
+    }
+    Route {
+        geoip: None,
+        geosite: None,
+        rules: route_rules,
+        auto_detect_interface: true,
+        final_outbound: "proxy",
+    }
+}
+
+fn build_route_rule(rule: &SplitTunnelRule) -> Option<Value> {
+    let outbound = match rule.action {
+        SplitTunnelAction::Direct => "direct",
+        SplitTunnelAction::Proxy => "proxy",
+    };
+    let mut map = Map::new();
+    map.insert("outbound".into(), outbound.into());
+
+    match rule.target {
+        SplitTunnelTarget::Domain => {
+            let value = rule.value.trim_start_matches('*').trim_start_matches('.');
+            if rule.value.starts_with('*') || rule.value.starts_with('.') {
+                map.insert("domain_suffix".into(), value.into());
+            } else {
+                map.insert("domain".into(), serde_json::json!([rule.value.clone()]));
+            }
+        }
+        SplitTunnelTarget::Ip => {
+            map.insert("ip_cidr".into(), serde_json::json!([rule.value.clone()]));
+        }
+        SplitTunnelTarget::Cidr => {
+            map.insert("ip_cidr".into(), serde_json::json!([rule.value.clone()]));
+        }
+        SplitTunnelTarget::App => {
+            return None;
+        }
+    }
+
+    Some(Value::Object(map))
+}
+
 // Minimal DNS configuration compatible with sing-box 1.11.x through 1.13.x.
 fn dns() -> Value {
     serde_json::json!({
@@ -414,7 +472,7 @@ mod tests {
     #[test]
     fn vless_reality_config_contains_outbound() {
         let node = sample_vless_reality();
-        let cfg = generate_config(&node, InboundPorts::default()).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds.iter().find(|o| o.get("tag").unwrap() == "proxy").unwrap();
@@ -446,6 +504,7 @@ mod tests {
                 http_port: Some(8080),
                 ..Default::default()
             },
+            &[],
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -481,6 +540,7 @@ mod tests {
                 http_port: Some(8080),
                 mixed_port: None,
             },
+            &[],
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -504,5 +564,86 @@ mod tests {
         node.security = Security::Tls;
         node.transport = Transport::Xhttp;
         assert!(requires_singbox(&node));
+    }
+
+    #[test]
+    fn domain_rule_appears_in_route() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::Domain,
+            "example.com",
+            SplitTunnelAction::Direct,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route = value.get("route").unwrap();
+        let route_rules = route.get("rules").unwrap().as_array().unwrap();
+        assert_eq!(route_rules.len(), 1);
+        assert_eq!(route_rules[0].get("outbound").unwrap(), "direct");
+        let domains = route_rules[0].get("domain").unwrap().as_array().unwrap();
+        assert!(domains.iter().any(|d| d == "example.com"));
+    }
+
+    #[test]
+    fn wildcard_domain_uses_domain_suffix() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::Domain,
+            "*.example.com",
+            SplitTunnelAction::Proxy,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules[0].get("outbound").unwrap(), "proxy");
+        assert_eq!(route_rules[0].get("domain_suffix").unwrap(), "example.com");
+    }
+
+    #[test]
+    fn ip_and_cidr_rules_use_ip_cidr() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Ip,
+                "1.2.3.4",
+                SplitTunnelAction::Direct,
+                None,
+            ),
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Cidr,
+                "10.0.0.0/8",
+                SplitTunnelAction::Proxy,
+                None,
+            ),
+        ];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 2);
+        let first = route_rules[0]["ip_cidr"].as_array().unwrap();
+        assert!(first.iter().any(|v| v == "1.2.3.4"));
+        let second = route_rules[1]["ip_cidr"].as_array().unwrap();
+        assert!(second.iter().any(|v| v == "10.0.0.0/8"));
+    }
+
+    #[test]
+    fn app_rules_are_skipped() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::App,
+            "curl",
+            SplitTunnelAction::Direct,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert!(route_rules.is_empty());
     }
 }

@@ -4,6 +4,7 @@ pub mod config;
 pub mod hwid;
 pub mod nodes;
 pub mod proxy;
+pub mod split_tunnel;
 pub mod subscriptions;
 
 use crate::error::ApiError;
@@ -40,6 +41,13 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/v1/proxy/status", get(proxy::status))
         .route("/api/v1/proxy/start", post(proxy::start))
         .route("/api/v1/proxy/stop", post(proxy::stop))
+        .route("/api/v1/split-tunnel", get(split_tunnel::list).post(split_tunnel::add))
+        .route(
+            "/api/v1/split-tunnel/{id}",
+            get(split_tunnel::get)
+                .put(split_tunnel::update)
+                .delete(split_tunnel::delete),
+        )
         .with_state(state)
 }
 

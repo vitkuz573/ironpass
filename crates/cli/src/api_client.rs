@@ -1,8 +1,9 @@
 //! Thin HTTP client for the ironpassd REST API.
 
 use ironpass_api::models::{
-    AddSubscriptionRequest, ConfigResponse, HealthResponse, HwidResponse, NodeWithSubscription,
-    ProxyStatus, StartProxyRequest, StoredSubscription,
+    AddSplitTunnelRuleRequest, AddSubscriptionRequest, ConfigResponse, HealthResponse, HwidResponse,
+    NodeWithSubscription, ProxyStatus, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
+    StartProxyRequest, StoredSubscription,
 };
 use ironpass_config::AppConfig;
 use serde::de::DeserializeOwned;
@@ -115,6 +116,60 @@ impl ApiClient {
 
     pub async fn stop_proxy(&self) -> reqwest::Result<ProxyStatus> {
         self.post_empty("/api/v1/proxy/stop").await
+    }
+
+    pub async fn list_split_tunnel_rules(
+        &self,
+        node_id: Option<Uuid>,
+    ) -> reqwest::Result<Vec<SplitTunnelRule>> {
+        let path = match node_id {
+            Some(id) => format!("/api/v1/split-tunnel?node={id}"),
+            None => "/api/v1/split-tunnel".into(),
+        };
+        self.get(&path).await
+    }
+
+    pub async fn add_split_tunnel_rule(
+        &self,
+        target: SplitTunnelTarget,
+        value: String,
+        action: SplitTunnelAction,
+        node_id: Option<Uuid>,
+    ) -> reqwest::Result<SplitTunnelRule> {
+        self.post_json(
+            "/api/v1/split-tunnel",
+            &AddSplitTunnelRuleRequest {
+                target,
+                value,
+                action,
+                node_id,
+            },
+        )
+        .await
+    }
+
+    pub async fn update_split_tunnel_rule(
+        &self,
+        id: Uuid,
+        target: SplitTunnelTarget,
+        value: String,
+        action: SplitTunnelAction,
+        node_id: Option<Uuid>,
+    ) -> reqwest::Result<SplitTunnelRule> {
+        self.put_json(
+            &format!("/api/v1/split-tunnel/{id}"),
+            &AddSplitTunnelRuleRequest {
+                target,
+                value,
+                action,
+                node_id,
+            },
+        )
+        .await
+    }
+
+    pub async fn delete_split_tunnel_rule(&self, id: Uuid) -> reqwest::Result<serde_json::Value> {
+        self.delete(&format!("/api/v1/split-tunnel/{id}")).await
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> reqwest::Result<T> {

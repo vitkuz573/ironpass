@@ -2,7 +2,10 @@
 
 use crate::core_process::{CoreProcessManager, CoreType};
 use crate::db::{import_legacy_subscriptions, DbPool};
-use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
+use crate::models::{
+    NodeWithSubscription, ProxyStatus, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
+    StartProxyRequest, StoredSubscription,
+};
 use crate::singbox::{generate_config as generate_singbox_config, InboundPorts};
 use crate::xray::{generate_config as generate_xray_config, requires_xray, InboundPorts as XrayInboundPorts};
 use ironpass_config::{AppConfig, ConfigManager};
@@ -16,16 +19,18 @@ use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct AppState {
     pub config_manager: ConfigManager,
     pub db: DbPool,
     pub hwid_provider: Arc<dyn HwidProvider + Send + Sync>,
     pub http_client: Client,
-    pub process_manager: RwLock<CoreProcessManager>,
-    pub selected_node: RwLock<Option<Uuid>>,
-    pub proxy_ports: RwLock<Option<ProxyPorts>>,
+    pub process_manager: Arc<RwLock<CoreProcessManager>>,
+    pub selected_node: Arc<RwLock<Option<Uuid>>>,
+    pub proxy_ports: Arc<RwLock<Option<ProxyPorts>>>,
+    pub split_tunnel_rules: Arc<RwLock<Vec<SplitTunnelRule>>>,
     pub start_time: Instant,
-    pub xray_path: RwLock<Option<PathBuf>>,
+    pub xray_path: Arc<RwLock<Option<PathBuf>>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -51,12 +56,40 @@ impl AppState {
             config_manager,
             db,
             hwid_provider,
-            process_manager: RwLock::new(CoreProcessManager::new()),
-            selected_node: RwLock::new(None),
-            proxy_ports: RwLock::new(None),
+            process_manager: Arc::new(RwLock::new(CoreProcessManager::new())),
+            selected_node: Arc::new(RwLock::new(None)),
+            proxy_ports: Arc::new(RwLock::new(None)),
+            split_tunnel_rules: Arc::new(RwLock::new(Vec::new())),
             start_time: Instant::now(),
-            xray_path: RwLock::new(xray_path),
+            xray_path: Arc::new(RwLock::new(xray_path)),
         }
+    }
+
+    /// Load split tunnel rules from the database into memory.
+    pub async fn load_split_tunnel_rules_async(&self) -> anyhow::Result<()> {
+        let rules = self.db.list_split_tunnel_rules(None)?;
+        let mut guard = self.split_tunnel_rules.write().await;
+        *guard = rules;
+        Ok(())
+    }
+
+    /// Load split tunnel rules from the database into memory.
+    ///
+    /// This synchronous variant is intended for use before an async runtime is running.
+    pub fn load_split_tunnel_rules(&self) -> anyhow::Result<()> {
+        let rules = self.db.list_split_tunnel_rules(None)?;
+        // Best-effort: if the runtime is available, use an async write; otherwise
+        // initialize the vector lazily on first async access.
+        if let Ok(handle) = tokio::runtime::Handle::try_current()
+            && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
+        {
+            let this = Arc::new(self.clone());
+            handle.block_on(async move {
+                let mut guard = this.split_tunnel_rules.write().await;
+                *guard = rules;
+            });
+        }
+        Ok(())
     }
 
     /// Load or migrate legacy JSON state.
@@ -220,6 +253,77 @@ impl AppState {
         }
     }
 
+    pub async fn list_split_tunnel_rules(
+        &self,
+        node_id: Option<Uuid>,
+    ) -> anyhow::Result<Vec<SplitTunnelRule>> {
+        Ok(self.db.list_split_tunnel_rules(node_id)?)
+    }
+
+    pub async fn get_split_tunnel_rule(&self, id: Uuid) -> anyhow::Result<Option<SplitTunnelRule>> {
+        Ok(self.db.get_split_tunnel_rule(id)?)
+    }
+
+    pub async fn add_split_tunnel_rule(
+        &self,
+        target: SplitTunnelTarget,
+        value: String,
+        action: SplitTunnelAction,
+        node_id: Option<Uuid>,
+    ) -> anyhow::Result<SplitTunnelRule> {
+        if value.trim().is_empty() {
+            anyhow::bail!("Rule value cannot be empty");
+        }
+        let rule = SplitTunnelRule::new(target, value, action, node_id);
+        self.db.insert_split_tunnel_rule(&rule)?;
+        let mut guard = self.split_tunnel_rules.write().await;
+        guard.push(rule.clone());
+        Ok(rule)
+    }
+
+    pub async fn update_split_tunnel_rule(
+        &self,
+        id: Uuid,
+        target: SplitTunnelTarget,
+        value: String,
+        action: SplitTunnelAction,
+        node_id: Option<Uuid>,
+    ) -> anyhow::Result<SplitTunnelRule> {
+        if value.trim().is_empty() {
+            anyhow::bail!("Rule value cannot be empty");
+        }
+        let existing = self
+            .db
+            .get_split_tunnel_rule(id)?
+            .ok_or_else(|| crate::error::ApiError::NotFound(format!("Rule {id} not found")))?;
+        let mut updated = existing;
+        updated.target = target;
+        updated.value = value;
+        updated.action = action;
+        updated.node_id = node_id;
+        updated.updated_at = chrono::Utc::now();
+        if !self.db.update_split_tunnel_rule(&updated)? {
+            anyhow::bail!("Rule {id} not found");
+        }
+
+        let mut guard = self.split_tunnel_rules.write().await;
+        if let Some(pos) = guard.iter().position(|r| r.id == id) {
+            guard[pos] = updated.clone();
+        } else {
+            guard.push(updated.clone());
+        }
+        Ok(updated)
+    }
+
+    pub async fn delete_split_tunnel_rule(&self, id: Uuid) -> anyhow::Result<bool> {
+        let deleted = self.db.delete_split_tunnel_rule(id)?;
+        if deleted {
+            let mut guard = self.split_tunnel_rules.write().await;
+            guard.retain(|r| r.id != id);
+        }
+        Ok(deleted)
+    }
+
     pub async fn proxy_status(&self) -> anyhow::Result<ProxyStatus> {
         let manager = self.process_manager.read().await;
         let running = manager.is_running().await;
@@ -264,13 +368,14 @@ impl AppState {
             mixed: req.mixed_port,
         };
 
+        let rules = self.split_tunnel_rules.read().await.clone();
         let (core_type, config_json, actual_ports) = if requires_xray(&node.node) {
             let xray_ports = XrayInboundPorts {
                 socks_port: ports.socks,
                 http_port: ports.http,
                 mixed_port: ports.mixed,
             };
-            let config = generate_xray_config(&node.node, xray_ports)?;
+            let config = generate_xray_config(&node.node, xray_ports, &rules)?;
             (
                 CoreType::Xray,
                 config.json,
@@ -286,7 +391,7 @@ impl AppState {
                 http_port: ports.http,
                 mixed_port: ports.mixed,
             };
-            let config = generate_singbox_config(&node.node, singbox_ports)?;
+            let config = generate_singbox_config(&node.node, singbox_ports, &rules)?;
             (
                 CoreType::SingBox,
                 config.json,

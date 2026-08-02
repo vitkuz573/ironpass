@@ -7,6 +7,7 @@ pub mod export;
 pub mod hwid;
 pub mod ping;
 pub mod proxy;
+pub mod split_tunnel;
 pub mod sub;
 
 use crate::api_client::ApiClient;
@@ -61,5 +62,6 @@ pub async fn dispatch(cli: Cli) -> eyre::Result<()> {
         Commands::Proxy { node, socks_port, http_port, mixed_port } => {
             proxy::handle(&url, node, socks_port, http_port, mixed_port).await
         }
+        Commands::SplitTunnel { action } => split_tunnel::handle(&url, action, cli.json).await,
     }
 }

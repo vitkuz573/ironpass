@@ -150,6 +150,74 @@ pub enum Commands {
         #[arg(long, help = "Use mixed inbound on this port")]
         mixed_port: Option<u16>,
     },
+
+    #[command(about = "Manage split tunnel (selective routing) rules")]
+    SplitTunnel {
+        #[command(subcommand)]
+        action: SplitTunnelAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SplitTunnelAction {
+    #[command(about = "List split tunnel rules")]
+    List {
+        #[arg(long, help = "Filter rules by node ID")]
+        node: Option<String>,
+    },
+
+    #[command(about = "Add a split tunnel rule")]
+    Add {
+        #[arg(value_enum)]
+        target: SplitTunnelTargetArg,
+
+        #[arg(help = "Rule value (domain, IP, CIDR or app path)")]
+        value: String,
+
+        #[arg(value_enum)]
+        action: SplitTunnelActionArg,
+
+        #[arg(long, help = "Associate rule with a specific node")]
+        node: Option<String>,
+    },
+
+    #[command(about = "Update a split tunnel rule")]
+    Update {
+        #[arg(help = "Rule ID")]
+        id: String,
+
+        #[arg(value_enum)]
+        target: SplitTunnelTargetArg,
+
+        #[arg(help = "Rule value")]
+        value: String,
+
+        #[arg(value_enum)]
+        action: SplitTunnelActionArg,
+
+        #[arg(long, help = "Associated node ID")]
+        node: Option<String>,
+    },
+
+    #[command(about = "Remove a split tunnel rule")]
+    Remove {
+        #[arg(help = "Rule ID")]
+        id: String,
+    },
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum SplitTunnelTargetArg {
+    Domain,
+    Ip,
+    Cidr,
+    App,
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum SplitTunnelActionArg {
+    Direct,
+    Proxy,
 }
 
 #[derive(Subcommand)]

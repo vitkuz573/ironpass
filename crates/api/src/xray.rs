@@ -1,5 +1,6 @@
 //! Generate Xray-core JSON configuration from a `ProxyNode`.
 
+use crate::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
 use ironpass_core::models::{Protocol, ProxyNode, Security, Transport, XhttpExtra};
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -50,7 +51,11 @@ pub fn requires_xray(node: &ProxyNode) -> bool {
 }
 
 /// Generate an Xray-core JSON config for `node` with the requested inbound ports.
-pub fn generate_config(node: &ProxyNode, ports: InboundPorts) -> anyhow::Result<XrayConfig> {
+pub fn generate_config(
+    node: &ProxyNode,
+    ports: InboundPorts,
+    rules: &[SplitTunnelRule],
+) -> anyhow::Result<XrayConfig> {
     let outbound = build_outbound(node)?;
 
     let mut inbounds = Vec::new();
@@ -92,7 +97,7 @@ pub fn generate_config(node: &ProxyNode, ports: InboundPorts) -> anyhow::Result<
         api: Some(api),
         inbounds,
         outbounds: vec![outbound, direct_outbound(), block_outbound()],
-        routing: routing(),
+        routing: routing(rules),
         policy: Some(policy),
     };
 
@@ -375,14 +380,52 @@ fn block_outbound() -> Value {
     })
 }
 
-fn routing() -> Value {
+fn routing(rules: &[SplitTunnelRule]) -> Value {
+    let mut rule_values = vec![
+        serde_json::json!({ "type": "field", "outboundTag": "direct", "ip": ["geoip:private"] }),
+        serde_json::json!({ "type": "field", "outboundTag": "block", "domain": ["geosite:category-ads-all"] }),
+    ];
+    for rule in rules {
+        let Some(value) = build_routing_rule(rule) else {
+            tracing::warn!("Skipping unsupported split tunnel rule for Xray: {:?}", rule);
+            continue;
+        };
+        rule_values.push(value);
+    }
+
     serde_json::json!({
         "domainStrategy": "IPIfNonMatch",
-        "rules": [
-            { "type": "field", "outboundTag": "direct", "ip": ["geoip:private"] },
-            { "type": "field", "outboundTag": "block", "domain": ["geosite:category-ads-all"] }
-        ]
+        "rules": rule_values
     })
+}
+
+fn build_routing_rule(rule: &SplitTunnelRule) -> Option<Value> {
+    let outbound = match rule.action {
+        SplitTunnelAction::Direct => "direct",
+        SplitTunnelAction::Proxy => "proxy",
+    };
+    let mut map = Map::new();
+    map.insert("type".into(), "field".into());
+    map.insert("outboundTag".into(), outbound.into());
+
+    match rule.target {
+        SplitTunnelTarget::Domain => {
+            let value = rule.value.trim_start_matches('*').trim_start_matches('.');
+            if rule.value.starts_with('*') || rule.value.starts_with('.') {
+                map.insert("domain".into(), serde_json::json!([format!("domain:{value}")]));
+            } else {
+                map.insert("domain".into(), serde_json::json!([rule.value.clone()]));
+            }
+        }
+        SplitTunnelTarget::Ip | SplitTunnelTarget::Cidr => {
+            map.insert("ip".into(), serde_json::json!([rule.value.clone()]));
+        }
+        SplitTunnelTarget::App => {
+            return None;
+        }
+    }
+
+    Some(Value::Object(map))
 }
 
 fn api_service(api_port: u16) -> Value {
@@ -447,7 +490,7 @@ mod tests {
     #[test]
     fn vless_reality_config_contains_outbound() {
         let node = sample_vless_reality();
-        let cfg = generate_config(&node, InboundPorts::default()).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds.iter().find(|o| o.get("tag").unwrap() == "proxy").unwrap();
@@ -483,6 +526,7 @@ mod tests {
                 http_port: Some(8080),
                 ..Default::default()
             },
+            &[],
         )
         .unwrap();
 
@@ -514,7 +558,7 @@ mod tests {
         node.service_name = Some("MyService".into());
         node.sni = Some("sni.example.com".into());
 
-        let cfg = generate_config(&node, InboundPorts::default()).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds.iter().find(|o| o.get("tag").unwrap() == "proxy").unwrap();
@@ -543,5 +587,92 @@ mod tests {
         let mut node = sample_vless_reality();
         node.transport = Transport::Tcp;
         assert!(!requires_xray(&node));
+    }
+
+    #[test]
+    fn domain_rule_appears_in_routing() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::Domain,
+            "example.com",
+            SplitTunnelAction::Direct,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        // default geoip:private + geosite:ads + 1 custom rule
+        assert_eq!(routing_rules.len(), 3);
+        let rule = &routing_rules[2];
+        assert_eq!(rule.get("outboundTag").unwrap(), "direct");
+        let domains = rule.get("domain").unwrap().as_array().unwrap();
+        assert!(domains.iter().any(|d| d == "example.com"));
+    }
+
+    #[test]
+    fn wildcard_domain_uses_domain_prefix() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::Domain,
+            "*.example.com",
+            SplitTunnelAction::Proxy,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        let rule = &routing_rules[2];
+        assert_eq!(rule.get("outboundTag").unwrap(), "proxy");
+        let domains = rule.get("domain").unwrap().as_array().unwrap();
+        assert!(domains.iter().any(|d| d == "domain:example.com"));
+    }
+
+    #[test]
+    fn ip_and_cidr_rules_use_ip_field() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Ip,
+                "1.2.3.4",
+                SplitTunnelAction::Direct,
+                None,
+            ),
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Cidr,
+                "10.0.0.0/8",
+                SplitTunnelAction::Proxy,
+                None,
+            ),
+        ];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        let first = &routing_rules[2];
+        assert_eq!(first.get("outboundTag").unwrap(), "direct");
+        let ips = first.get("ip").unwrap().as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "1.2.3.4"));
+        let second = &routing_rules[3];
+        assert_eq!(second.get("outboundTag").unwrap(), "proxy");
+        let ips = second.get("ip").unwrap().as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "10.0.0.0/8"));
+    }
+
+    #[test]
+    fn app_rules_are_skipped() {
+        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::App,
+            "curl",
+            SplitTunnelAction::Direct,
+            None,
+        )];
+        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        assert_eq!(routing_rules.len(), 2);
     }
 }

@@ -1,5 +1,6 @@
 use ironpass_api::models::StoredSubscription;
 use ironpass_core::models::{ProxyNode, Subscription};
+use serde::Serialize;
 use console::style;
 use std::io::{self, Write};
 
@@ -109,6 +110,15 @@ pub fn print_nodes_table(nodes: &[ProxyNode], sub: &Subscription) -> io::Result<
 
 pub fn print_nodes_json(nodes: &[ProxyNode]) -> io::Result<()> {
     println!("{}", serde_json::to_string_pretty(nodes).unwrap());
+    Ok(())
+}
+
+pub fn print_json<T: Serialize>(value: &T, json: bool) -> std::io::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(value).unwrap());
+    } else {
+        println!("{}", serde_yaml::to_string(value).unwrap());
+    }
     Ok(())
 }
 

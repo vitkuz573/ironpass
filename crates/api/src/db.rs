@@ -1,6 +1,6 @@
-//! SQLite persistence layer for subscriptions, nodes and proxy state.
+//! SQLite persistence layer for subscriptions, nodes, proxy state and split tunnel rules.
 
-use crate::models::StoredSubscription;
+use crate::models::{SplitTunnelRule, SplitTunnelTarget, SplitTunnelAction, StoredSubscription};
 use ironpass_core::models::{ProxyNode, SubscriptionMetadata};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -68,6 +68,18 @@ impl DbPool {
             );
 
             CREATE INDEX IF NOT EXISTS idx_nodes_subscription ON nodes(subscription_id);
+
+            CREATE TABLE IF NOT EXISTS split_tunnel_rules (
+                id TEXT PRIMARY KEY,
+                target TEXT NOT NULL,
+                value TEXT NOT NULL,
+                action TEXT NOT NULL,
+                node_id TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_split_tunnel_node_id ON split_tunnel_rules(node_id);
             "#,
         )?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -266,6 +278,143 @@ impl DbPool {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM nodes", [])?;
         Ok(())
+    }
+
+    pub fn insert_split_tunnel_rule(&self, rule: &SplitTunnelRule) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"
+            INSERT INTO split_tunnel_rules (id, target, value, action, node_id, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+            params![
+                rule.id.to_string(),
+                target_to_string(rule.target),
+                rule.value,
+                action_to_string(rule.action),
+                rule.node_id.map(|id| id.to_string()),
+                rule.created_at.to_rfc3339(),
+                rule.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_split_tunnel_rule(&self, rule: &SplitTunnelRule) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            r#"
+            UPDATE split_tunnel_rules
+            SET target = ?2, value = ?3, action = ?4, node_id = ?5, updated_at = ?6
+            WHERE id = ?1
+            "#,
+            params![
+                rule.id.to_string(),
+                target_to_string(rule.target),
+                rule.value,
+                action_to_string(rule.action),
+                rule.node_id.map(|id| id.to_string()),
+                rule.updated_at.to_rfc3339(),
+            ],
+        )?;
+        Ok(rows > 0)
+    }
+
+    pub fn list_split_tunnel_rules(
+        &self,
+        node_id: Option<Uuid>,
+    ) -> Result<Vec<SplitTunnelRule>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params_owned): (&str, Vec<String>) = match node_id {
+            Some(id) => (
+                "SELECT id, target, value, action, node_id, created_at, updated_at FROM split_tunnel_rules WHERE node_id = ?1 ORDER BY created_at",
+                vec![id.to_string()],
+            ),
+            None => (
+                "SELECT id, target, value, action, node_id, created_at, updated_at FROM split_tunnel_rules ORDER BY created_at",
+                vec![],
+            ),
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(params_owned.iter()), |row| {
+            Ok(SplitTunnelRule {
+                id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::new_v4()),
+                target: parse_target(&row.get::<_, String>(1)?),
+                value: row.get(2)?,
+                action: parse_action(&row.get::<_, String>(3)?),
+                node_id: row.get::<_, Option<String>>(4)?.and_then(|s| Uuid::parse_str(&s).ok()),
+                created_at: parse_datetime(row.get(5)?),
+                updated_at: parse_datetime(row.get(6)?),
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn get_split_tunnel_rule(
+        &self,
+        id: Uuid,
+    ) -> Result<Option<SplitTunnelRule>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, target, value, action, node_id, created_at, updated_at FROM split_tunnel_rules WHERE id = ?1",
+        )?;
+        let row = stmt
+            .query_row([id.to_string()], |row| {
+                Ok(SplitTunnelRule {
+                    id: Uuid::parse_str(&row.get::<_, String>(0)?).unwrap_or_else(|_| Uuid::new_v4()),
+                    target: parse_target(&row.get::<_, String>(1)?),
+                    value: row.get(2)?,
+                    action: parse_action(&row.get::<_, String>(3)?),
+                    node_id: row.get::<_, Option<String>>(4)?.and_then(|s| Uuid::parse_str(&s).ok()),
+                    created_at: parse_datetime(row.get(5)?),
+                    updated_at: parse_datetime(row.get(6)?),
+                })
+            })
+            .optional()?;
+        Ok(row)
+    }
+
+    pub fn delete_split_tunnel_rule(&self, id: Uuid) -> Result<bool, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM split_tunnel_rules WHERE id = ?1",
+            [id.to_string()],
+        )?;
+        Ok(rows > 0)
+    }
+}
+
+fn target_to_string(target: SplitTunnelTarget) -> String {
+    match target {
+        SplitTunnelTarget::Domain => "domain",
+        SplitTunnelTarget::Ip => "ip",
+        SplitTunnelTarget::Cidr => "cidr",
+        SplitTunnelTarget::App => "app",
+    }
+    .into()
+}
+
+fn parse_target(s: &str) -> SplitTunnelTarget {
+    match s {
+        "ip" => SplitTunnelTarget::Ip,
+        "cidr" => SplitTunnelTarget::Cidr,
+        "app" => SplitTunnelTarget::App,
+        _ => SplitTunnelTarget::Domain,
+    }
+}
+
+fn action_to_string(action: SplitTunnelAction) -> String {
+    match action {
+        SplitTunnelAction::Direct => "direct",
+        SplitTunnelAction::Proxy => "proxy",
+    }
+    .into()
+}
+
+fn parse_action(s: &str) -> SplitTunnelAction {
+    match s {
+        "proxy" => SplitTunnelAction::Proxy,
+        _ => SplitTunnelAction::Direct,
     }
 }
 
