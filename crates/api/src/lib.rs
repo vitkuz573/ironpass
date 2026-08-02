@@ -1,10 +1,11 @@
+pub mod core_process;
 pub mod db;
 pub mod error;
 pub mod models;
 pub mod routes;
 pub mod singbox;
-pub mod singbox_process;
 pub mod state;
+pub mod xray;
 
 use crate::state::AppState;
 use axum::Router;
@@ -20,7 +21,7 @@ pub fn app(state: Arc<AppState>) -> Router {
 }
 
 /// Create default application state using XDG directories.
-pub fn default_state() -> anyhow::Result<Arc<AppState>> {
+pub fn default_state(xray_path: Option<PathBuf>) -> anyhow::Result<Arc<AppState>> {
     let config_manager = ConfigManager::new();
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
@@ -29,7 +30,7 @@ pub fn default_state() -> anyhow::Result<Arc<AppState>> {
     let db_path = data_dir.join("ironpass.db");
     let db = db::DbPool::open(db_path)?;
     let hwid: Arc<dyn HwidProvider + Send + Sync> = Arc::new(ironpass_hwid::SystemHwidProvider::new());
-    Ok(Arc::new(AppState::new(config_manager, db, hwid)))
+    Ok(Arc::new(AppState::new(config_manager, db, hwid, xray_path)))
 }
 
 /// Run the API server on the given address.

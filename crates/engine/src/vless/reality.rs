@@ -344,7 +344,7 @@ mod tests {
             flow: None,
             sni: Some("www.example.com".into()),
             fingerprint: None,
-            public_key: Some(URL_SAFE_NO_PAD.encode([1u8; 32]).into()),
+            public_key: Some(URL_SAFE_NO_PAD.encode([1u8; 32])),
             short_id: Some("aabbccdd".into()),
             spider_x: Some("/spider".into()),
             path: None,
@@ -401,7 +401,7 @@ mod tests {
         node.public_key = Some("not-base64!!!".into());
         assert!(RealityKeys::from_node(&node).is_err());
 
-        node.public_key = Some(URL_SAFE_NO_PAD.encode([0u8; 16]).into());
+        node.public_key = Some(URL_SAFE_NO_PAD.encode([0u8; 16]));
         assert!(RealityKeys::from_node(&node).is_err());
     }
 }

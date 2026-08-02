@@ -1,6 +1,5 @@
-//! Managed sing-box subprocess with health monitoring and restart backoff.
+//! Managed proxy-core subprocess (sing-box or Xray-core) with health monitoring and restart backoff.
 
-use crate::singbox::SingBoxConfig;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -14,19 +13,56 @@ use tracing::{error, info, warn};
 const MAX_RESTART_ATTEMPTS: usize = 5;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
 
+/// Core type backing the proxy process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CoreType {
+    #[default]
+    SingBox,
+    Xray,
+}
+
+impl CoreType {
+    fn binary_names(&self) -> &'static [&'static str] {
+        match self {
+            CoreType::SingBox => &["sing-box", "sing-box.exe", "sb"],
+            CoreType::Xray => &["xray", "xray.exe"],
+        }
+    }
+
+    fn run_args(&self, config_path: &std::path::Path) -> Vec<std::ffi::OsString> {
+        match self {
+            CoreType::SingBox => {
+                vec!["run".into(), "-c".into(), config_path.as_os_str().into()]
+            }
+            CoreType::Xray => {
+                vec!["run".into(), "-config".into(), config_path.as_os_str().into()]
+            }
+        }
+    }
+
+    fn config_file_prefix(&self) -> &'static str {
+        match self {
+            CoreType::SingBox => "sing-box",
+            CoreType::Xray => "xray",
+        }
+    }
+}
+
 #[derive(Debug)]
-pub struct SingBoxProcessManager {
-    sing_box_path: Option<PathBuf>,
+pub struct CoreProcessManager {
+    core_type: CoreType,
+    core_path: Option<PathBuf>,
     child: Arc<Mutex<Option<Child>>>,
     start_time: Arc<Mutex<Option<Instant>>>,
     last_error: Arc<Mutex<Option<String>>>,
     restart_count: Arc<Mutex<usize>>,
 }
 
-impl SingBoxProcessManager {
+impl CoreProcessManager {
     pub fn new() -> Self {
         Self {
-            sing_box_path: None,
+            core_type: CoreType::default(),
+            core_path: None,
             child: Arc::new(Mutex::new(None)),
             start_time: Arc::new(Mutex::new(None)),
             last_error: Arc::new(Mutex::new(None)),
@@ -34,56 +70,77 @@ impl SingBoxProcessManager {
         }
     }
 
-    pub fn with_path(path: PathBuf) -> Self {
+    pub fn with_path(path: PathBuf, core_type: CoreType) -> Self {
         Self {
-            sing_box_path: Some(path),
+            core_type,
+            core_path: Some(path),
             child: Arc::new(Mutex::new(None)),
             start_time: Arc::new(Mutex::new(None)),
             last_error: Arc::new(Mutex::new(None)),
             restart_count: Arc::new(Mutex::new(0)),
         }
+    }
+
+    pub fn set_core_type(&mut self, core_type: CoreType) {
+        self.core_type = core_type;
     }
 
     pub fn set_path(&mut self, path: PathBuf) {
-        self.sing_box_path = Some(path);
+        self.core_path = Some(path);
     }
 
-    /// Locate the sing-box binary. Uses configured path, then PATH.
+    pub fn core_type(&self) -> CoreType {
+        self.core_type
+    }
+
+    /// Locate the core binary. Uses configured path, then PATH.
     pub async fn locate_binary(&self) -> anyhow::Result<PathBuf> {
-        if let Some(ref path) = self.sing_box_path
+        if let Some(ref path) = self.core_path
             && path.exists()
         {
             return Ok(path.clone());
         }
 
-        if let Ok(path) = which::global("sing-box") {
-            return Ok(path);
-        }
-
-        // Fallback to common names/locations.
-        for name in ["sing-box", "sing-box.exe", "sb"] {
+        for name in self.core_type.binary_names() {
             if let Ok(path) = which::global(name) {
                 return Ok(path);
             }
         }
 
-        anyhow::bail!("sing-box binary not found. Install sing-box or set sing_box_path in config.")
+        anyhow::bail!(
+            "{} binary not found. Install it or set the path via CLI/config.",
+            match self.core_type {
+                CoreType::SingBox => "sing-box",
+                CoreType::Xray => "xray",
+            }
+        )
     }
 
-    pub async fn start(&self, config: &SingBoxConfig) -> anyhow::Result<()> {
+    pub async fn start(&self, config_json: &str) -> anyhow::Result<()> {
         let bin = self.locate_binary().await?;
 
         let temp_dir = std::env::temp_dir().join("ironpass");
         fs::create_dir_all(&temp_dir).await?;
-        let config_path = temp_dir.join(format!("sing-box-{}.json", uuid::Uuid::new_v4()));
-        fs::write(&config_path, &config.json).await?;
+        let config_path = temp_dir.join(format!(
+            "{}-{}.json",
+            self.core_type.config_file_prefix(),
+            uuid::Uuid::new_v4()
+        ));
+        fs::write(&config_path, config_json).await?;
 
-        info!("Starting sing-box with config: {}", config_path.display());
+        info!(
+            "Starting {} with config: {}",
+            match self.core_type {
+                CoreType::SingBox => "sing-box",
+                CoreType::Xray => "xray-core",
+            },
+            config_path.display()
+        );
 
-        let mut child = Command::new(&bin)
-            .arg("run")
-            .arg("-c")
-            .arg(&config_path)
+        let args = self.core_type.run_args(&config_path);
+        let mut command = Command::new(&bin);
+        command.args(args);
+        let mut child = command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -93,11 +150,11 @@ impl SingBoxProcessManager {
         sleep(Duration::from_millis(300)).await;
         if let Some(status) = child.try_wait()? {
             let code = status.code().unwrap_or(-1);
-            anyhow::bail!("sing-box exited immediately with code {}", code);
+            anyhow::bail!("{} exited immediately with code {}", self.core_name(), code);
         }
 
         let pid = child.id().unwrap_or(0);
-        info!("sing-box started (pid {})", pid);
+        info!("{} started (pid {})", self.core_name(), pid);
 
         *self.child.lock().await = Some(child);
         *self.start_time.lock().await = Some(Instant::now());
@@ -109,11 +166,13 @@ impl SingBoxProcessManager {
         let start_time_arc = Arc::clone(&self.start_time);
         let last_error_arc = Arc::clone(&self.last_error);
         let restart_count_arc = Arc::clone(&self.restart_count);
-        let config_json = config.json.clone();
+        let config_json = config_json.to_string();
         let bin_clone = bin.clone();
+        let core_type = self.core_type;
 
         tokio::spawn(async move {
             monitor(
+                core_type,
                 child_arc,
                 start_time_arc,
                 last_error_arc,
@@ -131,7 +190,7 @@ impl SingBoxProcessManager {
     pub async fn stop(&self) -> anyhow::Result<()> {
         let mut child = self.child.lock().await;
         if let Some(ref mut c) = *child {
-            info!("Stopping sing-box (pid {})", c.id().unwrap_or(0));
+            info!("Stopping {} (pid {})", self.core_name(), c.id().unwrap_or(0));
             let _ = c.start_kill();
             let _ = c.wait().await;
         }
@@ -167,15 +226,24 @@ impl SingBoxProcessManager {
         let last_error = self.last_error.lock().await.clone();
         (pid, uptime, last_error)
     }
+
+    fn core_name(&self) -> &'static str {
+        match self.core_type {
+            CoreType::SingBox => "sing-box",
+            CoreType::Xray => "xray-core",
+        }
+    }
 }
 
-impl Default for SingBoxProcessManager {
+impl Default for CoreProcessManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn monitor(
+    core_type: CoreType,
     child_arc: Arc<Mutex<Option<Child>>>,
     start_time_arc: Arc<Mutex<Option<Instant>>>,
     last_error_arc: Arc<Mutex<Option<String>>>,
@@ -191,7 +259,7 @@ async fn monitor(
                 match child.wait().await {
                     Ok(status) => Some(status),
                     Err(e) => {
-                        error!("Failed to wait for sing-box: {}", e);
+                        error!("Failed to wait for {}: {}", core_name(core_type), e);
                         Some(std::process::ExitStatus::default())
                     }
                 }
@@ -206,12 +274,12 @@ async fn monitor(
         }
 
         let code = exit_status.as_ref().and_then(|s| s.code());
-        warn!("sing-box exited with code {:?}", code);
-        *last_error_arc.lock().await = Some(format!("sing-box exited with code {:?}", code));
+        warn!("{} exited with code {:?}", core_name(core_type), code);
+        *last_error_arc.lock().await = Some(format!("{} exited with code {:?}", core_name(core_type), code));
 
         let mut restart_count = restart_count_arc.lock().await;
         if *restart_count >= MAX_RESTART_ATTEMPTS {
-            error!("sing-box exceeded maximum restart attempts; giving up");
+            error!("{} exceeded maximum restart attempts; giving up", core_name(core_type));
             *start_time_arc.lock().await = None;
             break;
         }
@@ -221,21 +289,24 @@ async fn monitor(
 
         let backoff = BASE_BACKOFF.mul_f32(2.0f32.powi(attempt as i32 - 1));
         warn!(
-            "Restarting sing-box in {:?} (attempt {}/{})",
-            backoff, attempt, MAX_RESTART_ATTEMPTS
+            "Restarting {} in {:?} (attempt {}/{})",
+            core_name(core_type),
+            backoff,
+            attempt,
+            MAX_RESTART_ATTEMPTS
         );
         sleep(backoff).await;
 
         // Rewrite config (path is reused).
         if fs::write(&config_path, &config_json).await.is_err() {
-            error!("Failed to rewrite sing-box config");
+            error!("Failed to rewrite {} config", core_name(core_type));
             break;
         }
 
-        match Command::new(&bin)
-            .arg("run")
-            .arg("-c")
-            .arg(&config_path)
+        let args = core_type.run_args(&config_path);
+        let mut command = Command::new(&bin);
+        command.args(args);
+        match command
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true)
@@ -244,21 +315,21 @@ async fn monitor(
             Ok(mut child) => {
                 sleep(Duration::from_millis(300)).await;
                 if child.try_wait().ok().flatten().is_some() {
-                    error!("Restarted sing-box exited immediately");
+                    error!("Restarted {} exited immediately", core_name(core_type));
                     *last_error_arc.lock().await =
-                        Some("Restarted sing-box exited immediately".into());
+                        Some(format!("Restarted {} exited immediately", core_name(core_type)));
                     let mut guard = child_arc.lock().await;
                     *guard = None;
                     break;
                 }
-                info!("sing-box restarted (pid {})", child.id().unwrap_or(0));
+                info!("{} restarted (pid {})", core_name(core_type), child.id().unwrap_or(0));
                 *start_time_arc.lock().await = Some(Instant::now());
                 let mut guard = child_arc.lock().await;
                 *guard = Some(child);
             }
             Err(e) => {
-                error!("Failed to restart sing-box: {}", e);
-                *last_error_arc.lock().await = Some(format!("Failed to restart sing-box: {}", e));
+                error!("Failed to restart {}: {}", core_name(core_type), e);
+                *last_error_arc.lock().await = Some(format!("Failed to restart {}: {}", core_name(core_type), e));
                 break;
             }
         }
@@ -266,6 +337,13 @@ async fn monitor(
 
     // Cleanup config file.
     let _ = fs::remove_file(&config_path).await;
+}
+
+fn core_name(core_type: CoreType) -> &'static str {
+    match core_type {
+        CoreType::SingBox => "sing-box",
+        CoreType::Xray => "xray-core",
+    }
 }
 
 // Minimal `which` implementation to avoid extra dependency.

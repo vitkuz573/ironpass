@@ -44,7 +44,7 @@ fn spawn_server() -> (SocketAddr, ChildGuard) {
             );
             let db = DbPool::open_in_memory().unwrap();
             let hwid: Arc<dyn HwidProvider + Send + Sync> = Arc::new(MockHwidProvider);
-            let state = Arc::new(AppState::new(config_manager, db, hwid));
+            let state = Arc::new(AppState::new(config_manager, db, hwid, None));
 
             let app = ironpass_api::app(state);
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

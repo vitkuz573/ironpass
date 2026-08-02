@@ -34,7 +34,7 @@ fn test_state() -> Arc<AppState> {
     );
     let db = DbPool::open_in_memory().unwrap();
     let hwid: Arc<dyn HwidProvider + Send + Sync> = Arc::new(MockHwidProvider);
-    Arc::new(AppState::new(config_manager, db, hwid))
+    Arc::new(AppState::new(config_manager, db, hwid, None))
 }
 
 fn app(state: Arc<AppState>) -> axum::Router {

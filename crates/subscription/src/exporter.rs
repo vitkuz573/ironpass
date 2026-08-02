@@ -17,6 +17,7 @@ impl Default for NodeExporterImpl {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use ironpass_core::models::{OutputFormat, Protocol, Security, Transport};

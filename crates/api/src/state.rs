@@ -1,14 +1,16 @@
 //! Global application state shared across API handlers.
 
+use crate::core_process::{CoreProcessManager, CoreType};
 use crate::db::{import_legacy_subscriptions, DbPool};
 use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
-use crate::singbox::{generate_config, requires_singbox, InboundPorts};
-use crate::singbox_process::SingBoxProcessManager;
+use crate::singbox::{generate_config as generate_singbox_config, InboundPorts};
+use crate::xray::{generate_config as generate_xray_config, requires_xray, InboundPorts as XrayInboundPorts};
 use ironpass_config::{AppConfig, ConfigManager};
 use ironpass_core::models::Subscription;
 use ironpass_core::traits::HwidProvider;
 use ironpass_subscription::{FetchOptions, HttpSubscriptionFetcher, SubscriptionService};
 use reqwest::Client;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -19,10 +21,11 @@ pub struct AppState {
     pub db: DbPool,
     pub hwid_provider: Arc<dyn HwidProvider + Send + Sync>,
     pub http_client: Client,
-    pub process_manager: RwLock<SingBoxProcessManager>,
+    pub process_manager: RwLock<CoreProcessManager>,
     pub selected_node: RwLock<Option<Uuid>>,
     pub proxy_ports: RwLock<Option<ProxyPorts>>,
     pub start_time: Instant,
+    pub xray_path: RwLock<Option<PathBuf>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +40,7 @@ impl AppState {
         config_manager: ConfigManager,
         db: DbPool,
         hwid_provider: Arc<dyn HwidProvider + Send + Sync>,
+        xray_path: Option<PathBuf>,
     ) -> Self {
         Self {
             http_client: Client::builder()
@@ -47,10 +51,11 @@ impl AppState {
             config_manager,
             db,
             hwid_provider,
-            process_manager: RwLock::new(SingBoxProcessManager::new()),
+            process_manager: RwLock::new(CoreProcessManager::new()),
             selected_node: RwLock::new(None),
             proxy_ports: RwLock::new(None),
             start_time: Instant::now(),
+            xray_path: RwLock::new(xray_path),
         }
     }
 
@@ -253,31 +258,67 @@ impl AppState {
             },
         };
 
-        // Default to sing-box for any advanced node; otherwise still prefer sing-box.
-        let _ = requires_singbox(&node.node);
-
         let ports = ProxyPorts {
             socks: req.socks_port,
             http: req.http_port,
             mixed: req.mixed_port,
         };
-        let singbox_ports = InboundPorts {
-            socks_port: ports.socks,
-            http_port: ports.http,
-            mixed_port: ports.mixed,
-        };
-        let config = generate_config(&node.node, singbox_ports)?;
 
-        let manager = self.process_manager.write().await;
+        let (core_type, config_json, actual_ports) = if requires_xray(&node.node) {
+            let xray_ports = XrayInboundPorts {
+                socks_port: ports.socks,
+                http_port: ports.http,
+                mixed_port: ports.mixed,
+            };
+            let config = generate_xray_config(&node.node, xray_ports)?;
+            (
+                CoreType::Xray,
+                config.json,
+                ProxyPorts {
+                    socks: config.socks_port,
+                    http: config.http_port,
+                    mixed: config.mixed_port,
+                },
+            )
+        } else {
+            let singbox_ports = InboundPorts {
+                socks_port: ports.socks,
+                http_port: ports.http,
+                mixed_port: ports.mixed,
+            };
+            let config = generate_singbox_config(&node.node, singbox_ports)?;
+            (
+                CoreType::SingBox,
+                config.json,
+                ProxyPorts {
+                    socks: config.socks_port,
+                    http: config.http_port,
+                    mixed: config.mixed_port,
+                },
+            )
+        };
+
+        // Xray requires explicit configuration or a binary in PATH.
+        if core_type == CoreType::Xray {
+            let xray_path = self.xray_path.read().await.clone();
+            if xray_path.is_none() && which_xray_in_path().is_err() {
+                anyhow::bail!(
+                    "Xray-core is required for XHTTP/Splithttp nodes. \
+                     Provide --xray <PATH> or ensure `xray`/`xray.exe` is in PATH."
+                );
+            }
+        }
+
+        let mut manager = self.process_manager.write().await;
+        manager.set_core_type(core_type);
+        if let Some(path) = self.xray_path.read().await.clone() {
+            manager.set_path(path);
+        }
         manager.stop().await.ok();
-        manager.start(&config).await?;
+        manager.start(&config_json).await?;
 
         let mut stored_ports = self.proxy_ports.write().await;
-        *stored_ports = Some(ProxyPorts {
-            socks: config.socks_port,
-            http: config.http_port,
-            mixed: config.mixed_port,
-        });
+        *stored_ports = Some(actual_ports);
 
         drop(manager);
         drop(stored_ports);
@@ -294,3 +335,17 @@ impl AppState {
         self.proxy_status().await
     }
 }
+
+fn which_xray_in_path() -> anyhow::Result<PathBuf> {
+    let path_env = std::env::var_os("PATH").ok_or_else(|| anyhow::anyhow!("PATH not set"))?;
+    for name in ["xray", "xray.exe"] {
+        for dir in std::env::split_paths(&path_env) {
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
+        }
+    }
+    anyhow::bail!("xray not found in PATH")
+}
+

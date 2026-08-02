@@ -1,5 +1,5 @@
 use clap::Parser;
-use ironpass_api::{default_state, serve};
+use ironpass_api::{core_process::CoreType, default_state, serve};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;
@@ -13,6 +13,9 @@ struct Args {
 
     #[arg(long, help = "Path to sing-box binary")]
     sing_box: Option<PathBuf>,
+
+    #[arg(long, help = "Path to Xray-core binary")]
+    xray: Option<PathBuf>,
 
     #[arg(long, help = "Path to data directory")]
     data_dir: Option<PathBuf>,
@@ -33,12 +36,19 @@ async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     let addr: SocketAddr = args.bind.parse()?;
 
-    let state = default_state()?;
+    let state = default_state(args.xray.clone())?;
 
     if let Some(path) = args.sing_box {
         let mut manager = state.process_manager.write().await;
+        manager.set_core_type(CoreType::SingBox);
         manager.set_path(path);
         drop(manager);
+    }
+
+    if let Some(path) = args.xray {
+        let mut stored = state.xray_path.write().await;
+        *stored = Some(path);
+        drop(stored);
     }
 
     let migrated = state.migrate_legacy()?;
