@@ -1,0 +1,104 @@
+//! API-specific domain models and request/response DTOs.
+
+use chrono::{DateTime, Utc};
+use ironpass_core::models::{HwidInfo, ProxyNode, SubscriptionMetadata};
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+/// Stored subscription record with cached nodes and metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredSubscription {
+    pub id: Uuid,
+    pub url: String,
+    pub name: Option<String>,
+    pub hwid: Option<String>,
+    pub added_at: DateTime<Utc>,
+    pub last_updated: Option<DateTime<Utc>>,
+    pub is_active: bool,
+    pub metadata: SubscriptionMetadata,
+    #[serde(default)]
+    pub traffic_used: Option<u64>,
+    #[serde(default)]
+    pub traffic_total: Option<u64>,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+/// A node with its owning subscription context.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeWithSubscription {
+    pub id: Uuid,
+    pub subscription_id: Uuid,
+    pub subscription_name: Option<String>,
+    pub node: ProxyNode,
+}
+
+/// Request body for adding a subscription.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddSubscriptionRequest {
+    pub url: String,
+    pub name: Option<String>,
+    pub hwid: Option<String>,
+}
+
+/// Request body for starting the proxy.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StartProxyRequest {
+    pub node_id: Option<Uuid>,
+    pub socks_port: Option<u16>,
+    pub http_port: Option<u16>,
+    pub mixed_port: Option<u16>,
+}
+
+/// Response body for proxy status.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProxyStatus {
+    pub running: bool,
+    pub selected_node: Option<NodeWithSubscription>,
+    pub socks_port: Option<u16>,
+    pub http_port: Option<u16>,
+    pub mixed_port: Option<u16>,
+    pub pid: Option<u32>,
+    pub uptime_secs: Option<u64>,
+    pub last_error: Option<String>,
+}
+
+/// Aggregate health/status response.
+#[derive(Debug, Clone, Serialize)]
+pub struct HealthResponse {
+    pub status: &'static str,
+    pub version: &'static str,
+    pub uptime_secs: u64,
+    pub hwid: String,
+}
+
+/// Config response wrapping the existing application config.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigResponse {
+    pub config: ironpass_config::AppConfig,
+}
+
+/// HWID response.
+#[derive(Debug, Clone, Serialize)]
+pub struct HwidResponse {
+    pub hwid: String,
+    pub info: HwidInfo,
+}
+
+impl StoredSubscription {
+    pub fn new(url: String, name: Option<String>, hwid: Option<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            url,
+            name,
+            hwid,
+            added_at: Utc::now(),
+            last_updated: None,
+            is_active: true,
+            metadata: SubscriptionMetadata::default(),
+            traffic_used: None,
+            traffic_total: None,
+            expires_at: None,
+        }
+    }
+}
