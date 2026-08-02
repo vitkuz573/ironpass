@@ -20,8 +20,15 @@ pub struct SubscriptionService {
 
 impl SubscriptionService {
     pub fn new() -> Self {
+        Self::with_fetch_options(FetchOptions::default())
+    }
+
+    pub fn with_fetch_options(options: FetchOptions) -> Self {
         Self {
-            fetcher: HttpSubscriptionFetcher::new(),
+            fetcher: HttpSubscriptionFetcher::with_client(
+                default_http_client(),
+                options,
+            ),
             parser: SubscriptionParser::new(),
             exporter: NodeExporterImpl::new(),
         }
@@ -48,6 +55,16 @@ impl Default for SubscriptionService {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn default_http_client() -> reqwest::Client {
+    let user_agent = format!("IronPass/{}", env!("CARGO_PKG_VERSION"));
+    reqwest::Client::builder()
+        .user_agent(&user_agent)
+        .timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .build()
+        .expect("Failed to create HTTP client")
 }
 
 #[cfg(test)]

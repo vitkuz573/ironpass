@@ -43,11 +43,7 @@ impl HttpSubscriptionFetcher {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self {
-            client,
-            hwid_provider: Box::new(ironpass_hwid::SystemHwidProvider::new()),
-            options: FetchOptions::default(),
-        }
+        Self::with_client(client, FetchOptions::default())
     }
 
     /// Create a fetcher with a fully custom HTTP client, HWID provider and options.
@@ -188,6 +184,14 @@ impl HttpSubscriptionFetcher {
         supplied_hwid: Option<&str>,
         parsed: ParsedResponse,
     ) -> Result<Subscription> {
+        if parsed.hwid_limit {
+            warn!("Server reported HWID device limit");
+            return Err(Error::DeviceLimitExceeded {
+                current: parsed.nodes.len(),
+                limit: 1,
+            });
+        }
+
         if supplied_hwid.is_none() && parsed.all_placeholders && self.options.auto_hwid_retry {
             let mut last_error: Option<Error> = None;
 
@@ -246,14 +250,6 @@ impl HttpSubscriptionFetcher {
             return Err(last_error.unwrap_or_else(|| {
                 Error::Custom("HWID retry exhausted without success".to_string())
             }));
-        }
-
-        if parsed.hwid_limit {
-            warn!("Server reported HWID device limit");
-            return Err(Error::DeviceLimitExceeded {
-                current: parsed.nodes.len(),
-                limit: 1,
-            });
         }
 
         if parsed.all_placeholders {

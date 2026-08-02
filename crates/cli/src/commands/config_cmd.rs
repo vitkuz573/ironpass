@@ -2,8 +2,7 @@ use crate::args::ConfigAction;
 use color_eyre::eyre;
 use ironpass_config::ConfigManager;
 
-pub async fn handle(action: ConfigAction) -> eyre::Result<()> {
-    let manager = ConfigManager::new();
+pub async fn handle(manager: &ConfigManager, action: ConfigAction) -> eyre::Result<()> {
 
     match action {
         ConfigAction::Show => {

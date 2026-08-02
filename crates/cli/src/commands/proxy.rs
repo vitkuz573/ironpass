@@ -6,6 +6,7 @@ use ironpass_subscription::is_placeholder_node;
 use ironpass_engine::{ProxyConfig, ProxyEngine};
 
 pub async fn handle(
+    manager: &ConfigManager,
     url: Option<String>,
     node_index: Option<usize>,
     socks_port: u16,
@@ -14,8 +15,8 @@ pub async fn handle(
 ) -> eyre::Result<()> {
     // Install ring crypto provider for rustls
     ironpass_engine::install_crypto_provider();
-    
-    let config = ConfigManager::new().load_config()?;
+
+    let config = manager.load_config()?;
     let fetch_url = url.or_else(|| config.subscription.default_url.clone())
         .ok_or_else(|| eyre::eyre!("No URL provided"))?;
 

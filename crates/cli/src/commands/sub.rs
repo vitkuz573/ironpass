@@ -2,12 +2,13 @@ use crate::args::{OutputFormatArg, SubAction};
 use crate::output;
 use color_eyre::eyre;
 use ironpass_config::ConfigManager;
-use ironpass_core::traits::{HwidProvider, NodeExporter};
+use ironpass_core::traits::NodeExporter;
 use ironpass_core::models::OutputFormat;
 use ironpass_subscription::{NodeExporterImpl, SubscriptionService, is_placeholder_node};
 use tracing::info;
 
 pub async fn fetch(
+    manager: &ConfigManager,
     url: Option<String>,
     format: Option<OutputFormatArg>,
     output_file: Option<String>,
@@ -16,16 +17,13 @@ pub async fn fetch(
     sort: Option<String>,
     _json_output: bool,
 ) -> eyre::Result<()> {
-    let config = ConfigManager::new().load_config()?;
+    let config = manager.load_config()?;
     let fetch_url = resolve_url(url, &config)?;
 
-    let hwid = hwid_override.or_else(|| {
-        if config.hwid.enabled {
-            ironpass_hwid::SystemHwidProvider::new().generate().ok()
-        } else {
-            None
-        }
-    });
+    // Only send an explicit HWID on the first request. When no HWID is supplied,
+    // the subscription fetcher will retry automatically if the server returns
+    // placeholder nodes.
+    let hwid = hwid_override;
 
     let service = SubscriptionService::new();
     let sub = service.fetch_and_parse(&fetch_url, hwid.as_deref()).await?;
@@ -93,8 +91,7 @@ pub async fn fetch(
     Ok(())
 }
 
-pub async fn handle(action: SubAction, json: bool) -> eyre::Result<()> {
-    let manager = ConfigManager::new();
+pub async fn handle(manager: &ConfigManager, action: SubAction, json: bool) -> eyre::Result<()> {
 
     match action {
         SubAction::Add { url, name, hwid } => {

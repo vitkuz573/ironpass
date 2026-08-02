@@ -28,6 +28,7 @@ async fn main() -> eyre::Result<()> {
         .with_target(false)
         .with_thread_ids(false)
         .without_time()
+        .with_writer(std::io::stderr)
         .init();
 
     commands::dispatch(cli).await

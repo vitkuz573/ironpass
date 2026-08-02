@@ -5,12 +5,13 @@ use ironpass_subscription::SubscriptionService;
 use ironpass_subscription::is_placeholder_node;
 
 pub async fn handle(
+    manager: &ConfigManager,
     url: Option<String>,
     _probe: bool,
     detailed: bool,
     json: bool,
 ) -> eyre::Result<()> {
-    let config = ConfigManager::new().load_config()?;
+    let config = manager.load_config()?;
     let fetch_url = url.or_else(|| config.subscription.default_url.clone())
         .ok_or_else(|| eyre::eyre!("No URL provided"))?;
 
