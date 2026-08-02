@@ -1,13 +1,16 @@
 use ironpass_core::{Result, models::*, traits::*};
 
+mod converters;
+mod exporter;
 mod fetcher;
 mod parser;
-mod exporter;
-mod converters;
 
-pub use fetcher::{HttpSubscriptionFetcher, is_placeholder_node, placeholder_messages};
-pub use parser::SubscriptionParser;
 pub use exporter::NodeExporterImpl;
+pub use fetcher::{
+    FetchOptions, HttpSubscriptionFetcher, PlaceholderPolicy, is_placeholder_node,
+    placeholder_messages,
+};
+pub use parser::SubscriptionParser;
 
 pub struct SubscriptionService {
     fetcher: HttpSubscriptionFetcher,
@@ -44,5 +47,51 @@ impl SubscriptionService {
 impl Default for SubscriptionService {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine;
+    use base64::engine::general_purpose::STANDARD;
+    use ironpass_core::models::{OutputFormat, Protocol, SubscriptionFormat};
+
+    #[test]
+    fn service_detect_format_base64() {
+        let svc = SubscriptionService::new();
+        let raw = "vless://uuid@example.com:443?encryption=none#T";
+        let encoded = STANDARD.encode(raw.as_bytes());
+        assert_eq!(
+            svc.detect_format(&encoded),
+            SubscriptionFormat::Base64VlessList
+        );
+    }
+
+    #[test]
+    fn service_detect_format_raw() {
+        let svc = SubscriptionService::new();
+        assert_eq!(
+            svc.detect_format("vless://uuid@example.com:443?encryption=none#T"),
+            SubscriptionFormat::RawUriList
+        );
+    }
+
+    #[test]
+    fn service_parse_raw_delegates() {
+        let svc = SubscriptionService::new();
+        let raw = "vless://550e8400-e29b-41d4-a716-446655440000@example.com:443?encryption=none#T";
+        let nodes = svc.parse_raw(raw).unwrap();
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(nodes[0].protocol, Protocol::Vless);
+    }
+
+    #[test]
+    fn service_export_raw() {
+        let svc = SubscriptionService::new();
+        let raw = "vless://550e8400-e29b-41d4-a716-446655440000@example.com:443?encryption=none#T";
+        let nodes = svc.parse_raw(raw).unwrap();
+        let out = svc.export(&nodes, &OutputFormat::Raw).unwrap();
+        assert!(out.contains("vless://"));
     }
 }
