@@ -2,7 +2,7 @@
 
 # IronPass
 
-IronPass is an enterprise-grade, open-source CLI tool for managing VPN subscriptions. It fetches subscription links, parses multiple proxy formats (VLESS, VMess, Trojan, Shadowsocks, Clash, sing-box), filters placeholder nodes, converts between output formats, and can bind subscriptions to a stable Hardware ID (HWID).
+IronPass is an enterprise-grade, open-source **VPN client** for the terminal. It fetches subscription links, parses multiple proxy formats (VLESS, VMess, Trojan, Shadowsocks, Clash, sing-box), filters placeholder nodes, converts between output formats, and — most importantly — **connects to those servers directly** through a local SOCKS5/HTTP proxy with HWID binding support.
 
 ## Table of Contents
 
@@ -19,12 +19,12 @@ IronPass is an enterprise-grade, open-source CLI tool for managing VPN subscript
 
 ## Features
 
+- **Full VPN client**: Start a local SOCKS5/HTTP proxy and route your traffic through any parsed node — not just convert configs.
 - **Multi-format parsing**: VLESS, VMess, Trojan, Shadowsocks, Clash YAML, sing-box JSON, Base64-encoded URI lists.
 - **Format conversion**: Export subscriptions to Clash, sing-box, V2Ray base64, raw URIs, JSON, or a terminal table.
 - **HWID-aware fetching**: Automatic retry with a generated Hardware ID when providers respond with placeholder nodes.
 - **Placeholder detection**: Configurable scoring policy distinguishes real nodes from provider sentinels.
 - **Subscription metadata**: Extracts `profile-title`, `profile-update-interval`, `profile-web-page-url`, `announce`, and `subscription-userinfo` traffic data.
-- **Local proxy engine**: Start a SOCKS5/HTTP proxy directly from a selected node (experimental).
 - **Shell completions**: Generate completions for bash, zsh, fish, PowerShell, and Elvish.
 
 ## Installation
@@ -74,7 +74,20 @@ ironpass sub update
 
 This re-fetches every active subscription and refreshes the local node cache.
 
-### 4. Export to a client format
+### 4. Connect through a node
+
+```bash
+# Start a local SOCKS5 proxy on port 1080 and HTTP proxy on port 8080
+ironpass proxy "https://example.com/sub/TOKEN" --node 0 --socks-port 1080 --http-port 8080
+```
+
+Then route your traffic through it:
+
+```bash
+curl -x socks5h://127.0.0.1:1080 https://httpbin.org/ip
+```
+
+### 5. Export to a client format
 
 ```bash
 ironpass export "https://example.com/sub/TOKEN" --target singbox --output singbox.json
@@ -133,7 +146,7 @@ The HWID is derived from stable device attributes (hostname, username, machine I
 
 ## Configuration File
 
-IronPass stores configuration in the XDG config directory (e.g. `~/.config/ironpass/config.toml`) and subscription state in the XDG data directory (e.g. `~/.local/share/ironpass/subscriptions.json`).
+IronPass is designed to be a self-contained VPN client. It stores configuration in the XDG config directory (e.g. `~/.config/ironpass/config.toml`) and subscription state in the XDG data directory (e.g. `~/.local/share/ironpass/subscriptions.json`). You do not need a separate GUI client to actually use the nodes — IronPass starts the proxy itself.
 
 Run `ironpass config paths` to see the exact paths on your system.
 
@@ -282,7 +295,7 @@ ironpass ping "https://example.com/sub/TOKEN" --timeout 15
 
 ### `ironpass proxy [URL]`
 
-Start a local SOCKS5/HTTP proxy using a selected node.
+Start a local SOCKS5/HTTP proxy using a selected node. This is the primary way to use IronPass as a VPN client.
 
 | Flag              | Default | Description            |
 |-------------------|---------|------------------------|
@@ -290,6 +303,12 @@ Start a local SOCKS5/HTTP proxy using a selected node.
 | `--socks-port`    | `1080`  | Local SOCKS5 port      |
 | `--http-port`     | `8080`  | Local HTTP proxy port  |
 | `--hwid VALUE`    | none    | Override HWID          |
+
+```bash
+ironpass proxy "https://example.com/sub/TOKEN" --node 0 --socks-port 1080 --http-port 8080
+```
+
+Then configure your browser, application, or OS to use `socks5h://127.0.0.1:1080` or `http://127.0.0.1:8080`.
 
 ### `ironpass completions SHELL`
 
