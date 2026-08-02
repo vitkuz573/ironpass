@@ -1,13 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/core",
-    "crates/subscription",
-    "crates/hwid",
-    "crates/config",
-    "crates/backend",
-    "crates/api",
-    "crates/cli",
+    "crates/ironpass-core",
+    "crates/ironpass-subscription",
+    "crates/ironpass-hwid",
+    "crates/ironpass-config",
+    "crates/ironpass-backend",
+    "crates/ironpass-api",
+    "crates/ironpass-cli",
+    "crates/ironpass-api-client",
 ]
 
 [workspace.package]
@@ -107,9 +108,11 @@ etherparse = "0.21"
 dashmap = "6"
 
 # Internal crates
-ironpass-core = { path = "crates/core" }
-ironpass-subscription = { path = "crates/subscription" }
-ironpass-hwid = { path = "crates/hwid" }
-ironpass-config = { path = "crates/config" }
-ironpass-backend = { path = "crates/backend" }
-ironpass-api = { path = "crates/api" }
+ironpass-core = { path = "crates/ironpass-core" }
+ironpass-subscription = { path = "crates/ironpass-subscription" }
+ironpass-hwid = { path = "crates/ironpass-hwid" }
+ironpass-config = { path = "crates/ironpass-config" }
+ironpass-backend = { path = "crates/ironpass-backend" }
+ironpass-api = { path = "crates/ironpass-api" }
+ironpass-api-client = { path = "crates/ironpass-api-client" }
+ironpass-cli = { path = "crates/ironpass-cli" }

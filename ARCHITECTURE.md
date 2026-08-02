@@ -25,9 +25,10 @@ The architecture is layered:
 - **Core** (`ironpass-core`) defines domain models and traits.
 - **Subscription** (`ironpass-subscription`) implements fetching, parsing, placeholder detection and exporting.
 - **HWID** (`ironpass-hwid`) generates and persists a stable device identifier.
-- **Config** (`ironpass-config`) manages TOML configuration and JSON subscription storage.
-- **Transport** (`ironpass-transport`) provides a generic retrying HTTP client.
-- **Engine** (`ironpass-engine`) contains the experimental VLESS/Trojan/SOCKS5 proxy engine.
+- **Config** (`ironpass-config`) manages TOML configuration.
+- **Backend** (`ironpass-backend`) provides proxy backend abstraction and configuration generators for sing-box and Xray-core.
+- **API** (`ironpass-api`) exposes the `ironpassd` REST API and orchestrates subscriptions, HWID, config and proxy state.
+- **API Client** (`ironpass-api-client`) is a typed HTTP client shared by the CLI and API DTOs.
 - **CLI** (`ironpass-cli`) wires everything together behind a `clap` command-line interface.
 
 ## Workspace Layout
@@ -36,47 +37,48 @@ The architecture is layered:
 ironpass/
 ├── Cargo.toml
 ├── crates/
-│   ├── core/           # Domain models and shared traits
-│   ├── subscription/   # Fetch, parse, detect placeholders, export
-│   ├── hwid/           # HWID generation and device info
-│   ├── config/         # TOML config and JSON subscriptions store
-│   ├── transport/      # Retrying HTTP transport
-│   ├── engine/         # Proxy engine (VLESS, Trojan, SOCKS5)
-│   └── cli/            # Binary and command handlers
+│   ├── ironpass-core/           # Domain models and shared traits
+│   ├── ironpass-subscription/   # Fetch, parse, detect placeholders, export
+│   ├── ironpass-hwid/           # HWID generation and device info
+│   ├── ironpass-config/         # TOML config management
+│   ├── ironpass-backend/        # Proxy backend abstraction and config generators
+│   ├── ironpass-api/            # REST API daemon (ironpassd)
+│   ├── ironpass-api-client/     # Typed HTTP client and shared DTOs
+│   └── ironpass-cli/            # Binary and command handlers
 ```
 
 ## Component Diagram
 
 ```mermaid
 graph TD
-    CLI[ironpass CLI] --> Config[ironpass-config]
-    CLI --> Subscription[ironpass-subscription]
-    CLI --> HWID[ironpass-hwid]
-    CLI --> Engine[ironpass-engine]
+    CLI[ironpass CLI] --> ApiClient[ironpass-api-client]
+    ApiClient --> API[ironpass-api]
+    API --> Backend[ironpass-backend]
+    Backend --> SingBox[sing-box]
+    Backend --> Xray[Xray-core]
+
+    API --> Subscription[ironpass-subscription]
+    API --> HWID[ironpass-hwid]
+    API --> Config[ironpass-config]
 
     Subscription --> Core[ironpass-core]
-    Subscription --> HWID
     HWID --> Core
     Config --> Core
-    Transport --> Core
-    Transport --> HWID
-    Engine --> Core
-
-    CLI --> Transport
+    Backend --> Core
+    ApiClient --> Core
 
     subgraph External
         Provider[Subscription Provider]
     end
 
     Subscription -->|HTTP GET| Provider
-    Transport -->|HTTP GET| Provider
 ```
 
-- `CLI` dispatches to command handlers.
+- `CLI` dispatches to command handlers and talks to `ironpassd` via `ironpass-api-client`.
 - `Subscription` owns the fetch/parse/export loop.
-- `HWID` supplies identifiers used by fetchers and transport.
-- `Config` persists user settings and saved subscriptions.
-- `Engine` is used only by the `proxy` command.
+- `HWID` supplies identifiers used by fetchers.
+- `Config` persists user settings.
+- `Backend` generates sing-box/Xray-core configurations and is used by the `proxy` command.
 
 ## Crate Responsibilities and Dependencies
 
@@ -86,27 +88,27 @@ Defines shared domain types and abstractions.
 
 Key types:
 
-| Type                  | Purpose                                                    | File                          |
-|-----------------------|------------------------------------------------------------|-------------------------------|
-| `Protocol`            | VPN protocol enumeration (VLESS, VMess, Trojan, SS, etc.) | `crates/core/src/models.rs`   |
-| `Transport`           | Transport layer enumeration (TCP, WebSocket, gRPC, etc.)  | `crates/core/src/models.rs`   |
-| `Security`            | Security mode (None, TLS, Reality)                        | `crates/core/src/models.rs`   |
-| `OutputFormat`        | Target export format                                      | `crates/core/src/models.rs`   |
-| `ProxyNode`           | Canonical representation of a single proxy node           | `crates/core/src/models.rs`   |
-| `Subscription`        | Parsed subscription with nodes, traffic and metadata      | `crates/core/src/models.rs`   |
-| `SubscriptionMetadata`| Provider metadata (title, update interval, announce)      | `crates/core/src/models.rs`   |
-| `HwidInfo`            | Device fingerprint fields                                 | `crates/core/src/models.rs`   |
-| `Error`               | Unified error enum                                        | `crates/core/src/error.rs`    |
-| `SubscriptionFetcher` | Async trait for fetching subscriptions                    | `crates/core/src/traits.rs`   |
-| `NodeParser`          | Trait for parsing subscription text into nodes            | `crates/core/src/traits.rs`   |
-| `NodeExporter`        | Trait for exporting nodes to a target format              | `crates/core/src/traits.rs`   |
-| `HwidProvider`        | Trait for HWID generation and device info                 | `crates/core/src/traits.rs`   |
+| Type                  | Purpose                                                    | File                                          |
+|-----------------------|------------------------------------------------------------|-----------------------------------------------|
+| `Protocol`            | VPN protocol enumeration (VLESS, VMess, Trojan, SS, etc.) | `crates/ironpass-core/src/models.rs`          |
+| `Transport`           | Transport layer enumeration (TCP, WebSocket, gRPC, etc.)  | `crates/ironpass-core/src/models.rs`          |
+| `Security`            | Security mode (None, TLS, Reality)                        | `crates/ironpass-core/src/models.rs`          |
+| `OutputFormat`        | Target export format                                      | `crates/ironpass-core/src/models.rs`          |
+| `ProxyNode`           | Canonical representation of a single proxy node           | `crates/ironpass-core/src/models.rs`          |
+| `Subscription`        | Parsed subscription with nodes, traffic and metadata      | `crates/ironpass-core/src/models.rs`          |
+| `SubscriptionMetadata`| Provider metadata (title, update interval, announce)      | `crates/ironpass-core/src/models.rs`          |
+| `HwidInfo`            | Device fingerprint fields                                 | `crates/ironpass-core/src/models.rs`          |
+| `Error`               | Unified error enum                                        | `crates/ironpass-core/src/error.rs`           |
+| `SubscriptionFetcher` | Async trait for fetching subscriptions                    | `crates/ironpass-core/src/traits.rs`          |
+| `NodeParser`          | Trait for parsing subscription text into nodes            | `crates/ironpass-core/src/traits.rs`          |
+| `NodeExporter`        | Trait for exporting nodes to a target format              | `crates/ironpass-core/src/traits.rs`          |
+| `HwidProvider`        | Trait for HWID generation and device info                 | `crates/ironpass-core/src/traits.rs`          |
 
 ### `ironpass-subscription`
 
 Implements the subscription lifecycle.
 
-- `SubscriptionService` (`lib.rs`) is the high-level facade used by the CLI.
+- `SubscriptionService` (`service.rs`) is the high-level facade used by the CLI.
 - `HttpSubscriptionFetcher` (`fetcher.rs`) performs HTTP requests, HWID injection, retry logic, traffic parsing and metadata extraction.
 - `SubscriptionParser` (`parser.rs`) auto-detects and parses Base64 lists, raw URI lists, Clash YAML and sing-box JSON.
 - `NodeExporterImpl` (`exporter.rs`) exports nodes to Clash YAML, sing-box JSON, V2Ray base64, and raw URIs.
@@ -118,27 +120,39 @@ Implements the subscription lifecycle.
 
 ### `ironpass-config`
 
-`ConfigManager` loads and saves:
+`ConfigManager` loads and saves `config.toml` with `[general]`, `[subscription]`, `[hwid]`, `[output]` and `[logging]` sections.
 
-- `config.toml` with `[general]`, `[subscription]`, `[hwid]`, `[output]` and `[logging]` sections.
-- `subscriptions.json` containing the list of saved subscriptions, including optional per-subscription HWIDs.
+### `ironpass-backend`
 
-### `ironpass-transport`
+Proxy backend abstraction and configuration generators.
 
-`HttpTransport` wraps `reqwest` with configurable timeouts, proxy support, extra headers, and exponential-backoff retries.
+- `Backend` trait implemented by `SingBoxBackend` and `XrayBackend`.
+- `BackendRegistry` resolves `BackendType` (including `Auto`) to a concrete backend.
+- `CoreProcessManager` starts/stops the selected core binary.
+- `singbox.rs` and `xray.rs` generate core-specific JSON configurations.
 
-### `ironpass-engine`
+### `ironpass-api`
 
-Experimental proxy engine. Currently implements:
+REST API daemon (`ironpassd`). Public surface:
 
-- SOCKS5 server entry point (`socks5.rs`).
-- VLESS client framing and Reality/TLS support (`vless/`).
-- Trojan client (`trojan.rs`).
-- `ProxyEngine` orchestrates local listeners and shutdown signalling.
+- `ironpass_api::app`
+- `ironpass_api::default_state`
+- `ironpass_api::serve`
+- `ironpass_api::models` (re-exported from `ironpass-api-client`)
+
+Internal modules (`db`, `error`, `routes`, `state`) are private.
+
+### `ironpass-api-client`
+
+Typed HTTP client and shared DTOs.
+
+- `ApiClient` (`client.rs`) wraps `reqwest` calls to the `ironpassd` REST API.
+- `ApiClientError` (`error.rs`) enumerates typed client errors.
+- `models` (`models.rs`) contains DTOs such as `StoredSubscription`, `NodeWithSubscription`, `StartProxyRequest`, `ProxyStatus`, etc.
 
 ### `ironpass-cli`
 
-The binary crate. `main.rs` bootstraps tracing and `color-eyre`, then delegates to `commands::dispatch`. Each command has a dedicated module in `crates/cli/src/commands/`:
+The binary crate. `main.rs` bootstraps tracing and `color-eyre`, then delegates to `commands::dispatch`. Each command has a dedicated private module in `crates/ironpass-cli/src/commands/`:
 
 | Module            | Command              |
 |-------------------|----------------------|
@@ -151,20 +165,24 @@ The binary crate. `main.rs` bootstraps tracing and `color-eyre`, then delegates 
 | `ping.rs`         | `ping`               |
 | `completions.rs`  | `completions`        |
 | `config_cmd.rs`   | `config`             |
+| `backend.rs`      | `backend`            |
+| `split_tunnel.rs` | `split-tunnel`       |
+| `daemon.rs`       | `daemon`             |
 
 ## Data Flow for the `fetch` Command
 
 ```mermaid
 sequenceDiagram
     participant CLI as ironpass CLI
-    participant CFG as ConfigManager
+    participant CLIENT as ironpass-api-client
+    participant API as ironpass-api
     participant SVC as SubscriptionService
     participant FET as HttpSubscriptionFetcher
     participant HWID as SystemHwidProvider
     participant PAR as SubscriptionParser
     participant OUT as Output
 
-    CLI->>CFG: load config / resolve URL
+    CLI->>CLIENT: resolve API URL
     CLI->>SVC: fetch_and_parse(url, hwid)
     SVC->>FET: fetch(url, hwid)
     FET->>FET: build_request(url, hwid)
@@ -305,11 +323,13 @@ Each crate contains inline `#[cfg(test)]` modules covering its public API. `iron
 
 ### Integration tests
 
-- `crates/subscription/tests/hwid_retry_tests.rs` — verifies the HWID retry state machine using a `wiremock` server and a mocked `HwidProvider`.
-- `crates/subscription/tests/subscription_metadata_tests.rs` — verifies header and inline metadata extraction, precedence rules, and traffic parsing.
-- `crates/subscription/tests/placeholder_policy_tests.rs` — verifies default, strict and custom placeholder policies.
-- `crates/subscription/tests/round_trip_tests.rs` — verifies parsing and exporting across all supported formats.
-- `crates/cli/tests/fetch_integration_tests.rs` — five end-to-end CLI tests that exercise the `ironpass fetch` command against a `wiremock` server, covering automatic HWID retry, explicit HWID, placeholder inclusion, device limit errors, and JSON output.
+- `crates/ironpass-subscription/tests/hwid_retry_tests.rs` — verifies the HWID retry state machine using a `wiremock` server and a mocked `HwidProvider`.
+- `crates/ironpass-subscription/tests/subscription_metadata_tests.rs` — verifies header and inline metadata extraction, precedence rules, and traffic parsing.
+- `crates/ironpass-subscription/tests/placeholder_policy_tests.rs` — verifies default, strict and custom placeholder policies.
+- `crates/ironpass-subscription/tests/round_trip_tests.rs` — verifies parsing and exporting across all supported formats.
+- `crates/ironpass-api/tests/api_integration.rs` — verifies the `ironpassd` HTTP API surface using an in-memory database and a mocked `HwidProvider`.
+- `crates/ironpass-cli/tests/cli_api_integration.rs` — end-to-end CLI tests against a spawned `ironpassd` instance.
+- `crates/ironpass-cli/tests/fetch_integration_tests.rs` — five end-to-end CLI tests that exercise the `ironpass fetch` command against a `wiremock` server, covering automatic HWID retry, explicit HWID, placeholder inclusion, device limit errors, and JSON output.
 
 ### Running tests
 

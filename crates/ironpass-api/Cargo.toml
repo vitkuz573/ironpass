@@ -1,0 +1,48 @@
+[package]
+name = "ironpass-api"
+description = "REST API daemon and sing-box proxy orchestration for IronPass"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ironpassd"
+path = "src/main.rs"
+
+[dependencies]
+ironpass-core = { workspace = true }
+ironpass-subscription = { workspace = true }
+ironpass-hwid = { workspace = true }
+ironpass-config = { workspace = true }
+ironpass-backend = { workspace = true }
+ironpass-api-client = { workspace = true }
+
+serde = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true }
+clap = { workspace = true }
+rusqlite = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+dirs = { workspace = true }
+
+[features]
+test-helpers = []
+
+[dev-dependencies]
+axum = { workspace = true }
+tower = { workspace = true }
+reqwest = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+ironpass-api-client = { workspace = true }
+ironpass-api = { workspace = true, features = ["test-helpers"] }

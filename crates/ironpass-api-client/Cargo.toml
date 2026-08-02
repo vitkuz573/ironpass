@@ -1,0 +1,19 @@
+[package]
+name = "ironpass-api-client"
+description = "HTTP client for the IronPass REST API"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ironpass-core = { workspace = true }
+ironpass-config = { workspace = true }
+ironpass-backend = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
