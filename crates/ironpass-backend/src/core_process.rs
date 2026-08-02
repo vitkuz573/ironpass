@@ -120,6 +120,19 @@ impl CoreProcessManager {
         )
     }
 
+    /// Check whether an Xray binary exists in PATH.
+    ///
+    /// Used by callers that need to validate Xray availability before building
+    /// a configuration that requires it.
+    pub fn which_xray_in_path() -> anyhow::Result<PathBuf> {
+        for name in ["xray", "xray.exe"] {
+            if let Ok(path) = which::global(name) {
+                return Ok(path);
+            }
+        }
+        anyhow::bail!("xray not found in PATH")
+    }
+
     pub async fn start(&self, config_json: &str) -> anyhow::Result<()> {
         let bin = self.locate_binary().await?;
 

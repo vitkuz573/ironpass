@@ -67,25 +67,6 @@ impl Default for Route {
     }
 }
 
-/// Returns true if sing-box is required for this node (advanced transports / Reality).
-#[allow(dead_code)]
-pub fn requires_singbox(node: &ProxyNode) -> bool {
-    crate::backend::supports_singbox(node)
-}
-
-/// Sing-box backend marker type.
-#[derive(Debug, Clone, Copy, Default)]
-#[allow(dead_code)]
-pub struct SingBoxBackend;
-
-impl SingBoxBackend {
-    /// Create a new sing-box backend instance.
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 /// Generate a sing-box JSON config for `node` with the requested inbound ports.
 pub fn generate_config(
     node: &ProxyNode,
@@ -577,20 +558,6 @@ mod tests {
         assert_eq!(transport.get("type").unwrap(), "httpupgrade");
         assert_eq!(transport.get("mode").unwrap(), "stream-up");
         assert!(value.get("inbounds").unwrap().as_array().unwrap().len() == 2);
-    }
-
-    #[test]
-    fn requires_singbox_for_reality() {
-        let node = sample_vless_reality();
-        assert!(requires_singbox(&node));
-    }
-
-    #[test]
-    fn requires_singbox_for_xhttp() {
-        let mut node = sample_vless_reality();
-        node.security = Security::Tls;
-        node.transport = Transport::Xhttp;
-        assert!(requires_singbox(&node));
     }
 
     #[test]

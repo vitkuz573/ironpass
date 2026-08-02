@@ -1,4 +1,3 @@
-use crate::args::OutputFormatArg;
 use color_eyre::eyre;
 use ironpass_api_client::ApiClient;
 use ironpass_api_client::models::StartProxyRequest;
@@ -76,9 +75,4 @@ async fn resolve_node_or_subscription(client: &ApiClient, target: &str) -> eyre:
         "Node or subscription not found: {}. Provide a node UUID.",
         target
     ))
-}
-
-#[allow(dead_code)]
-fn arg_to_output_format(_arg: &OutputFormatArg) -> ironpass_core::models::OutputFormat {
-    ironpass_core::models::OutputFormat::Raw
 }

@@ -16,13 +16,6 @@ pub struct Cli {
     #[arg(long, global = true, help = "ironpassd API URL")]
     pub api_url: Option<String>,
 
-    #[arg(
-        long,
-        global = true,
-        help = "Start daemon automatically if not running"
-    )]
-    pub auto_start: bool,
-
     #[arg(long, global = true)]
     pub config: Option<String>,
 
@@ -82,9 +75,6 @@ pub enum Commands {
         #[arg(help = "Input file (stdin if omitted)")]
         input: Option<String>,
 
-        #[arg(long, short = 'f', help = "Input format (auto-detected if omitted)")]
-        from: Option<FormatHint>,
-
         #[arg(long, short = 't', help = "Output format")]
         to: OutputFormatArg,
 
@@ -92,16 +82,10 @@ pub enum Commands {
         output: Option<String>,
     },
 
-    #[command(about = "Analyze subscription (health, protocols, geolocation)")]
+    #[command(about = "Analyze subscription (protocols, transports, security)")]
     Analyze {
         #[arg(help = "Subscription URL or ID")]
         target: Option<String>,
-
-        #[arg(long, help = "Run connectivity probes")]
-        probe: bool,
-
-        #[arg(long, help = "Show detailed node info")]
-        detailed: bool,
     },
 
     #[command(about = "Export subscription for specific client")]
@@ -384,12 +368,6 @@ pub enum ExportTarget {
     Hiddify,
     #[value(alias = "nekoray")]
     NekoRay,
-    #[value(alias = "surge")]
-    Surge,
     #[value(alias = "shadowrocket")]
     Shadowrocket,
-    #[value(alias = "quantumult")]
-    QuantumultX,
-    #[value(alias = "loone")]
-    Loon,
 }

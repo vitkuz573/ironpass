@@ -16,19 +16,11 @@ pub enum ApiError {
     #[error("{0}")]
     BadRequest(String),
 
-    #[error("{0}")]
-    #[allow(dead_code)]
-    Conflict(String),
-
     #[error(transparent)]
     Core(#[from] CoreError),
 
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),
-
-    #[error("Internal error: {0}")]
-    #[allow(dead_code)]
-    Internal(String),
 }
 
 impl IntoResponse for ApiError {
@@ -36,8 +28,6 @@ impl IntoResponse for ApiError {
         let (status, message) = match self {
             ApiError::NotFound(msg) => (StatusCode::NOT_FOUND, msg),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
-            ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ApiError::Anyhow(e) => {
                 let msg = e.to_string();
                 tracing::error!("Internal error: {:#}", e);

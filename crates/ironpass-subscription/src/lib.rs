@@ -13,8 +13,6 @@ mod fetcher;
 mod parser;
 
 pub use exporter::NodeExporterImpl;
-#[cfg(test)]
-pub use fetcher::placeholder_messages;
 pub use fetcher::{FetchOptions, HttpSubscriptionFetcher, PlaceholderPolicy, is_placeholder_node};
 pub use parser::SubscriptionParser;
 

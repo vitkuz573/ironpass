@@ -1,4 +1,3 @@
-use crate::args::FormatHint;
 use crate::args::OutputFormatArg;
 use color_eyre::eyre;
 use ironpass_core::models::OutputFormat;
@@ -7,7 +6,6 @@ use ironpass_subscription::{NodeExporterImpl, SubscriptionParser};
 
 pub async fn handle(
     input: Option<String>,
-    _from: Option<FormatHint>,
     to: OutputFormatArg,
     output_file: Option<String>,
 ) -> eyre::Result<()> {

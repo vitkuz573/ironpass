@@ -47,25 +47,6 @@ struct Log {
     loglevel: &'static str,
 }
 
-/// Returns true if Xray-core is required for this node (XHTTP/Splithttp transports).
-#[allow(dead_code)]
-pub fn requires_xray(node: &ProxyNode) -> bool {
-    crate::backend::supports_xray(node)
-}
-
-/// Xray-core backend marker type.
-#[derive(Debug, Clone, Copy, Default)]
-#[allow(dead_code)]
-pub struct XrayBackend;
-
-impl XrayBackend {
-    /// Create a new Xray-core backend instance.
-    #[allow(dead_code)]
-    pub fn new() -> Self {
-        Self
-    }
-}
-
 /// Generate an Xray-core JSON config for `node` with the requested inbound ports.
 pub fn generate_config(
     node: &ProxyNode,
@@ -628,27 +609,6 @@ mod tests {
                 .unwrap(),
             "MyService"
         );
-    }
-
-    #[test]
-    fn requires_xray_for_xhttp() {
-        let mut node = sample_vless_reality();
-        node.transport = Transport::Xhttp;
-        assert!(requires_xray(&node));
-    }
-
-    #[test]
-    fn requires_xray_for_splithttp() {
-        let mut node = sample_vless_reality();
-        node.transport = Transport::Splithttp;
-        assert!(requires_xray(&node));
-    }
-
-    #[test]
-    fn does_not_require_xray_for_tcp() {
-        let mut node = sample_vless_reality();
-        node.transport = Transport::Tcp;
-        assert!(!requires_xray(&node));
     }
 
     #[test]

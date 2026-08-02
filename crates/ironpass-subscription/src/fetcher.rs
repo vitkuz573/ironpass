@@ -542,16 +542,6 @@ pub fn is_placeholder_node(node: &ProxyNode) -> bool {
     PlaceholderPolicy::default().is_placeholder(node)
 }
 
-/// Return the display names of all placeholder nodes in the slice.
-#[allow(dead_code)]
-pub fn placeholder_messages(nodes: &[ProxyNode]) -> Vec<String> {
-    nodes
-        .iter()
-        .filter(|n| is_placeholder_node(n))
-        .map(|n| n.name.clone())
-        .collect()
-}
-
 fn mask_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url) {
         let path = parsed.path();

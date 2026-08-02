@@ -60,10 +60,7 @@ pub async fn handle(
         ExportTarget::V2RayNG => (OutputFormat::V2Ray, Some("V2RayNG")),
         ExportTarget::Hiddify => (OutputFormat::SingBox, Some("Hiddify")),
         ExportTarget::NekoRay => (OutputFormat::V2Ray, Some("NekoRay")),
-        ExportTarget::Surge => (OutputFormat::Surge, Some("Surge")),
         ExportTarget::Shadowrocket => (OutputFormat::V2Ray, Some("Shadowrocket")),
-        ExportTarget::QuantumultX => (OutputFormat::QuantumultX, Some("Quantumult X")),
-        ExportTarget::Loon => (OutputFormat::Loon, Some("Loon")),
     };
 
     let content = exporter.export(&nodes, &fmt)?;

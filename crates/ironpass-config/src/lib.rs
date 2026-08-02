@@ -5,7 +5,6 @@ use std::path::PathBuf;
 
 const APP_NAME: &str = "ironpass";
 const CONFIG_FILE: &str = "config.toml";
-const SUBSCRIPTIONS_FILE: &str = "subscriptions.json";
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
@@ -49,9 +48,6 @@ impl Default for GeneralConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionConfig {
-    #[serde(default)]
-    pub default_url: Option<String>,
-
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
 
@@ -68,7 +64,6 @@ pub struct SubscriptionConfig {
 impl Default for SubscriptionConfig {
     fn default() -> Self {
         Self {
-            default_url: None,
             auto_update: default_auto_update(),
             update_interval_hours: default_update_interval(),
             proxy: None,
@@ -214,10 +209,6 @@ impl ConfigManager {
 
     pub fn config_path(&self) -> PathBuf {
         self.config_dir.join(CONFIG_FILE)
-    }
-
-    pub fn subscriptions_path(&self) -> PathBuf {
-        self.data_dir.join(SUBSCRIPTIONS_FILE)
     }
 
     pub fn load_config(&self) -> Result<AppConfig> {

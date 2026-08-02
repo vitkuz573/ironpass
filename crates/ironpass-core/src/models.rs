@@ -45,9 +45,6 @@ pub enum OutputFormat {
     Clash,
     SingBox,
     V2Ray,
-    Surge,
-    QuantumultX,
-    Loon,
     Raw,
 }
 

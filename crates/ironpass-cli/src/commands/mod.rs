@@ -13,24 +13,11 @@ mod sub;
 
 use crate::args::{Cli, Commands};
 use color_eyre::eyre;
-use ironpass_api_client::ApiClient;
 
 pub fn api_url(cli: &Cli) -> String {
     cli.api_url
         .clone()
         .unwrap_or_else(|| "http://127.0.0.1:8080".into())
-}
-
-#[allow(dead_code)]
-pub async fn ensure_daemon(_cli: &Cli, url: &str) -> eyre::Result<()> {
-    let client = ApiClient::with_url(url.into());
-    if client.health().await.is_err() {
-        return Err(eyre::eyre!(
-            "ironpassd is not running at {}. Run `ironpass daemon start` first.",
-            url
-        ));
-    }
-    Ok(())
 }
 
 pub async fn dispatch(cli: Cli) -> eyre::Result<()> {
@@ -54,23 +41,13 @@ pub async fn dispatch(cli: Cli) -> eyre::Result<()> {
                 hwid,
                 include_placeholders,
                 sort,
-                cli.json,
             )
             .await
         }
         Commands::Sub { action } => sub::handle(&url, action, cli.json).await,
         Commands::Hwid { action } => hwid::handle(&url, action, cli.json).await,
-        Commands::Convert {
-            input,
-            from,
-            to,
-            output,
-        } => convert::handle(input, from, to, output).await,
-        Commands::Analyze {
-            target,
-            probe,
-            detailed,
-        } => analyze::handle(&url, target, probe, detailed, cli.json).await,
+        Commands::Convert { input, to, output } => convert::handle(input, to, output).await,
+        Commands::Analyze { target } => analyze::handle(&url, target, cli.json).await,
         Commands::Export {
             target,
             target_client,

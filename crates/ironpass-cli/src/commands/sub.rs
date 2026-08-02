@@ -8,7 +8,6 @@ use ironpass_subscription::NodeExporterImpl;
 use tracing::info;
 use uuid::Uuid;
 
-#[allow(clippy::too_many_arguments)]
 pub async fn fetch(
     api_url: &str,
     url: Option<String>,
@@ -17,7 +16,6 @@ pub async fn fetch(
     hwid_override: Option<String>,
     include_placeholders: bool,
     sort: Option<String>,
-    _json_output: bool,
 ) -> eyre::Result<()> {
     let client = ApiClient::with_url(api_url.into());
 

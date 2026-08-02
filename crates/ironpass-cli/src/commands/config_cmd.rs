@@ -23,8 +23,8 @@ pub async fn handle(api_url: &str, action: ConfigAction) -> eyre::Result<()> {
             println!("Set {} = {}", key, value);
         }
         ConfigAction::Paths => {
-            println!("API URL:  {}", api_url);
-            println!("Daemon:   ironpassd");
+            println!("API URL:       {}", api_url);
+            println!("Daemon binary: ironpassd");
         }
     }
 
@@ -36,7 +36,6 @@ fn set_config_value(config: &mut AppConfig, key: &str, value: &str) -> eyre::Res
         "general.user_agent" => config.general.user_agent = value.to_string(),
         "general.timeout_secs" => config.general.timeout_secs = value.parse()?,
         "general.max_retries" => config.general.max_retries = value.parse()?,
-        "subscription.default_url" => config.subscription.default_url = Some(value.to_string()),
         "subscription.auto_update" => config.subscription.auto_update = value.parse()?,
         "subscription.update_interval_hours" => {
             config.subscription.update_interval_hours = value.parse()?

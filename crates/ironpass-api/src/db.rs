@@ -287,12 +287,6 @@ impl DbPool {
         Ok(row)
     }
 
-    pub fn clear_all_nodes(&self) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM nodes", [])?;
-        Ok(())
-    }
-
     pub fn insert_split_tunnel_rule(&self, rule: &SplitTunnelRule) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -443,48 +437,4 @@ fn parse_datetime(s: String) -> chrono::DateTime<chrono::Utc> {
     chrono::DateTime::parse_from_rfc3339(&s)
         .map(|dt| dt.with_timezone(&chrono::Utc))
         .unwrap_or_else(|_| chrono::Utc::now())
-}
-
-/// Legacy subscription record used for migration from the JSON store.
-#[derive(Debug, Clone, serde::Deserialize)]
-struct LegacyStoredSubscription {
-    url: String,
-    name: Option<String>,
-    added_at: chrono::DateTime<chrono::Utc>,
-    last_updated: Option<chrono::DateTime<chrono::Utc>>,
-    hwid: Option<String>,
-    is_active: bool,
-}
-
-#[derive(Debug, Clone, Default, serde::Deserialize)]
-pub struct LegacySubscriptionsStore {
-    subscriptions: Vec<LegacyStoredSubscription>,
-}
-
-/// Import legacy JSON subscription store into SQLite.
-pub fn import_legacy_subscriptions(
-    pool: &DbPool,
-    legacy: &LegacySubscriptionsStore,
-) -> Result<usize, rusqlite::Error> {
-    let mut count = 0;
-    for sub in &legacy.subscriptions {
-        let stored = StoredSubscription {
-            id: Uuid::new_v4(),
-            url: sub.url.clone(),
-            name: sub.name.clone(),
-            hwid: sub.hwid.clone(),
-            added_at: sub.added_at,
-            last_updated: sub.last_updated,
-            is_active: sub.is_active,
-            metadata: SubscriptionMetadata::default(),
-            traffic_used: None,
-            traffic_total: None,
-            expires_at: None,
-        };
-        match pool.insert_subscription(&stored) {
-            Ok(()) => count += 1,
-            Err(e) => tracing::warn!("Failed to import subscription: {}", e),
-        }
-    }
-    Ok(count)
 }

@@ -1,6 +1,6 @@
 //! Global application state shared across API handlers.
 
-use crate::db::{DbPool, import_legacy_subscriptions};
+use crate::db::DbPool;
 use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
 use ironpass_backend::{
     BackendRegistry, BackendType, CoreProcessManager, CoreType, GeneratedConfig, ProxyPorts,
@@ -89,46 +89,11 @@ impl AppState {
     }
 
     /// Load split tunnel rules from the database into memory.
-    pub async fn load_split_tunnel_rules_async(&self) -> anyhow::Result<()> {
+    pub async fn load_split_tunnel_rules(&self) -> anyhow::Result<()> {
         let rules = self.db.list_split_tunnel_rules(None)?;
         let mut guard = self.split_tunnel_rules.write().await;
         *guard = rules;
         Ok(())
-    }
-
-    /// Load split tunnel rules from the database into memory.
-    ///
-    /// This synchronous variant is intended for use before an async runtime is running.
-    pub fn load_split_tunnel_rules(&self) -> anyhow::Result<()> {
-        let rules = self.db.list_split_tunnel_rules(None)?;
-        // Best-effort: if the runtime is available, use an async write; otherwise
-        // initialize the vector lazily on first async access.
-        if let Ok(handle) = tokio::runtime::Handle::try_current()
-            && handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread
-        {
-            let this = Arc::new(self.clone());
-            handle.block_on(async move {
-                let mut guard = this.split_tunnel_rules.write().await;
-                *guard = rules;
-            });
-        }
-        Ok(())
-    }
-
-    /// Load or migrate legacy JSON state.
-    pub fn migrate_legacy(&self) -> anyhow::Result<usize> {
-        let legacy_path = self.config_manager.subscriptions_path();
-        if !legacy_path.exists() {
-            return Ok(0);
-        }
-        let content = std::fs::read_to_string(&legacy_path)?;
-        let legacy: crate::db::LegacySubscriptionsStore = serde_json::from_str(&content)?;
-        let count = import_legacy_subscriptions(&self.db, &legacy)?;
-        if count > 0 {
-            let backup = legacy_path.with_extension("json.bak");
-            std::fs::rename(&legacy_path, &backup)?;
-        }
-        Ok(count)
     }
 
     pub fn load_config(&self) -> anyhow::Result<AppConfig> {
@@ -410,7 +375,7 @@ impl AppState {
         // Xray requires explicit configuration or a binary in PATH.
         if core_type == CoreType::Xray {
             let xray_path = self.xray_path.read().await.clone();
-            if xray_path.is_none() && which_xray_in_path().is_err() {
+            if xray_path.is_none() && CoreProcessManager::which_xray_in_path().is_err() {
                 anyhow::bail!(
                     "Xray-core is required for XHTTP/Splithttp nodes. \
                      Provide --xray <PATH> or ensure `xray`/`xray.exe` is in PATH."
@@ -443,17 +408,4 @@ impl AppState {
         drop(ports);
         self.proxy_status().await
     }
-}
-
-fn which_xray_in_path() -> anyhow::Result<PathBuf> {
-    let path_env = std::env::var_os("PATH").ok_or_else(|| anyhow::anyhow!("PATH not set"))?;
-    for name in ["xray", "xray.exe"] {
-        for dir in std::env::split_paths(&path_env) {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Ok(candidate);
-            }
-        }
-    }
-    anyhow::bail!("xray not found in PATH")
 }

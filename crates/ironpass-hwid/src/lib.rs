@@ -71,15 +71,6 @@ impl SystemHwidProvider {
         fs::write(self.hwid_file(), json)?;
         Ok(())
     }
-
-    #[allow(dead_code)]
-    pub(crate) fn device_model_string(&self) -> String {
-        let info = self.load_or_generate().ok();
-        match info {
-            Some(i) => format!("{}/{}", i.device_model, i.os),
-            None => "Unknown".into(),
-        }
-    }
 }
 
 impl Default for SystemHwidProvider {

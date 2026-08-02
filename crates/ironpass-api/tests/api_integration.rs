@@ -43,9 +43,7 @@ fn app(state: Arc<AppState>) -> axum::Router {
 }
 
 fn state_with_loaded_rules() -> Arc<AppState> {
-    let state = test_state();
-    state.load_split_tunnel_rules().unwrap();
-    state
+    test_state()
 }
 
 #[tokio::test]

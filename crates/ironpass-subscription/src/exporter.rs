@@ -196,13 +196,6 @@ mod tests {
     }
 
     #[test]
-    fn export_unimplemented_format_errors() {
-        let exporter = NodeExporterImpl::new();
-        let result = exporter.export(&[sample_vless()], &OutputFormat::Surge);
-        assert!(matches!(result, Err(ironpass_core::Error::Custom(_))));
-    }
-
-    #[test]
     fn node_to_uri_vless_round_trip_preserves_key_fields() {
         let exporter = NodeExporterImpl::new();
         let uri = exporter.node_to_uri(&sample_vless());
@@ -278,10 +271,6 @@ impl ironpass_core::traits::NodeExporter for NodeExporterImpl {
             OutputFormat::SingBox => self.to_singbox(nodes),
             OutputFormat::V2Ray => self.to_v2ray(nodes),
             OutputFormat::Raw => self.to_raw_uris(nodes),
-            _ => Err(ironpass_core::Error::Custom(format!(
-                "Format {:?} not yet implemented",
-                format
-            ))),
         }
     }
 }

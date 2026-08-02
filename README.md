@@ -114,9 +114,6 @@ ironpass export "https://example.com/sub/TOKEN" --target singbox --output singbo
 | V2Ray       | `--format v2ray`            | V2RayN, V2RayNG, NekoRay             |
 | Clash       | `--format clash`            | Clash, Clash Meta / mihomo           |
 | sing-box    | `--format singbox`          | sing-box, Hiddify                    |
-| Surge       | `--target surge`            | Surge for macOS/iOS                  |
-| QuantumultX | `--target quantumult`       | Quantumult X                         |
-| Loon        | `--target loone`            | Loon                                 |
 | Shadowrocket| `--target shadowrocket`     | Shadowrocket                         |
 
 ## HWID Binding
@@ -146,7 +143,7 @@ The HWID is derived from stable device attributes (hostname, username, machine I
 
 ## Configuration File
 
-IronPass is designed to be a self-contained VPN client. It stores configuration in the XDG config directory (e.g. `~/.config/ironpass/config.toml`) and subscription state in the XDG data directory (e.g. `~/.local/share/ironpass/subscriptions.json`). You do not need a separate GUI client to actually use the nodes — IronPass starts the proxy itself.
+IronPass is designed to be a self-contained VPN client. It stores configuration in the XDG config directory (e.g. `~/.config/ironpass/config.toml`) and subscription state in the XDG data directory (e.g. `~/.local/share/ironpass/ironpass.db`). You do not need a separate GUI client to actually use the nodes — IronPass starts the proxy itself.
 
 Run `ironpass config paths` to see the exact paths on your system.
 
@@ -159,7 +156,6 @@ timeout_secs = 30
 max_retries = 3
 
 [subscription]
-default_url = "https://example.com/sub/TOKEN"
 auto_update = true
 update_interval_hours = 24
 proxy = "http://127.0.0.1:8080"
@@ -189,7 +185,6 @@ log_dir = ""
 | `general`      | `user_agent`            | `v2rayN/6.0`    | User-Agent for HTTP requests                             |
 | `general`      | `timeout_secs`          | `30`            | Request timeout in seconds                               |
 | `general`      | `max_retries`           | `3`             | Maximum HTTP retry attempts                              |
-| `subscription` | `default_url`           | none            | Subscription URL used when none is provided              |
 | `subscription` | `auto_update`           | `true`          | Whether to update saved subscriptions automatically      |
 | `subscription` | `update_interval_hours` | `24`            | Minimum interval between auto-updates                    |
 | `subscription` | `proxy`                 | none            | Upstream HTTP proxy for requests                         |
@@ -265,17 +260,12 @@ Manage saved subscriptions.
 Convert a local subscription file between formats. Reads from stdin if `INPUT` is omitted.
 
 ```bash
-ironpass convert input.yaml --from clash --to singbox --output singbox.json
+ironpass convert input.yaml --to singbox --output singbox.json
 ```
 
 ### `ironpass analyze [URL]`
 
 Print statistics about a subscription.
-
-| Flag         | Description                          |
-|--------------|--------------------------------------|
-| `--probe`    | Run connectivity probes              |
-| `--detailed` | Show per-node details                |
 
 ### `ironpass export [URL] --target TARGET`
 
@@ -325,7 +315,7 @@ ironpass completions bash > /etc/bash_completion.d/ironpass
 | `show`              | Print current configuration          |
 | `reset`             | Reset configuration to defaults      |
 | `set KEY VALUE`     | Set a config key                     |
-| `paths`             | Show config and data file paths      |
+| `paths`             | Show API URL and daemon binary name  |
 
 ## Development and Testing
 

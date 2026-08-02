@@ -51,11 +51,6 @@ async fn main() -> anyhow::Result<()> {
         drop(stored);
     }
 
-    let migrated = state.migrate_legacy()?;
-    if migrated > 0 {
-        tracing::info!("Migrated {} legacy subscriptions to SQLite", migrated);
-    }
-
     tracing::info!("ironpassd listening on http://{}", addr);
     serve(state, addr).await?;
     Ok(())

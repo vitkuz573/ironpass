@@ -36,7 +36,7 @@ fn node_with(fields: impl FnOnce(&mut ProxyNode)) -> ProxyNode {
 }
 
 #[test]
-fn default_policy_matches_legacy_zero_uuid() {
+fn default_policy_matches_zero_uuid() {
     let node = node_with(|n| {
         n.uuid = Some("00000000-0000-0000-0000-000000000000".into());
     });
@@ -44,7 +44,7 @@ fn default_policy_matches_legacy_zero_uuid() {
 }
 
 #[test]
-fn default_policy_matches_legacy_zero_address_and_port() {
+fn default_policy_matches_zero_address_and_port() {
     let node = node_with(|n| {
         n.server = "0.0.0.0".into();
         n.port = 1;

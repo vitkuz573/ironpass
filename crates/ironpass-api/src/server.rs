@@ -25,7 +25,6 @@ pub fn default_state(xray_path: Option<PathBuf>) -> anyhow::Result<Arc<AppState>
     let hwid: Arc<dyn HwidProvider + Send + Sync> =
         Arc::new(ironpass_hwid::SystemHwidProvider::new());
     let state = AppState::new(config_manager, db, hwid, xray_path);
-    state.load_split_tunnel_rules()?;
     Ok(Arc::new(state))
 }
 

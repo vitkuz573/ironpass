@@ -2,13 +2,7 @@ use color_eyre::eyre;
 use ironpass_api_client::ApiClient;
 use ironpass_subscription::is_placeholder_node;
 
-pub async fn handle(
-    api_url: &str,
-    target: Option<String>,
-    _probe: bool,
-    detailed: bool,
-    json: bool,
-) -> eyre::Result<()> {
+pub async fn handle(api_url: &str, target: Option<String>, json: bool) -> eyre::Result<()> {
     let client = ApiClient::with_url(api_url.into());
 
     let id = match target {
@@ -22,7 +16,6 @@ pub async fn handle(
                 sub.traffic_used,
                 sub.traffic_total,
                 sub.fetched_at,
-                detailed,
                 json,
             )?;
             return Ok(());
@@ -51,7 +44,6 @@ pub async fn handle(
             .subscription
             .last_updated
             .unwrap_or(detail.subscription.added_at),
-        detailed,
         json,
     )?;
 
@@ -64,7 +56,6 @@ fn print_analysis(
     traffic_used: Option<u64>,
     traffic_total: Option<u64>,
     fetched_at: chrono::DateTime<chrono::Utc>,
-    _detailed: bool,
     json: bool,
 ) -> eyre::Result<()> {
     let real: Vec<_> = nodes.iter().filter(|n| !is_placeholder_node(n)).collect();
