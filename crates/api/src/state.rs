@@ -1,13 +1,12 @@
 //! Global application state shared across API handlers.
 
+use crate::backend::{BackendRegistry, BackendType, ProxyPorts};
 use crate::core_process::{CoreProcessManager, CoreType};
 use crate::db::{import_legacy_subscriptions, DbPool};
 use crate::models::{
     NodeWithSubscription, ProxyStatus, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
     StartProxyRequest, StoredSubscription,
 };
-use crate::singbox::{generate_config as generate_singbox_config, InboundPorts};
-use crate::xray::{generate_config as generate_xray_config, requires_xray, InboundPorts as XrayInboundPorts};
 use ironpass_config::{AppConfig, ConfigManager};
 use ironpass_core::models::Subscription;
 use ironpass_core::traits::HwidProvider;
@@ -31,13 +30,8 @@ pub struct AppState {
     pub split_tunnel_rules: Arc<RwLock<Vec<SplitTunnelRule>>>,
     pub start_time: Instant,
     pub xray_path: Arc<RwLock<Option<PathBuf>>>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ProxyPorts {
-    pub socks: Option<u16>,
-    pub http: Option<u16>,
-    pub mixed: Option<u16>,
+    pub backend_registry: Arc<BackendRegistry>,
+    pub preferred_backend: Arc<RwLock<BackendType>>,
 }
 
 impl AppState {
@@ -62,7 +56,38 @@ impl AppState {
             split_tunnel_rules: Arc::new(RwLock::new(Vec::new())),
             start_time: Instant::now(),
             xray_path: Arc::new(RwLock::new(xray_path)),
+            backend_registry: Arc::new(BackendRegistry::new()),
+            preferred_backend: Arc::new(RwLock::new(BackendType::Auto)),
         }
+    }
+
+    /// Set the preferred backend type used for `Auto` resolution.
+    pub async fn set_preferred_backend(&self, backend_type: BackendType) {
+        let mut guard = self.preferred_backend.write().await;
+        *guard = backend_type;
+    }
+
+    /// Resolve a backend type to a concrete backend.
+    ///
+    /// `Auto` uses the state's preferred backend if set, otherwise selects the
+    /// best backend for the node.
+    pub async fn resolve_backend(
+        &self,
+        backend_type: BackendType,
+        node: &ironpass_core::models::ProxyNode,
+    ) -> anyhow::Result<(BackendType, Arc<dyn crate::backend::Backend>)> {
+        let backend: Arc<dyn crate::backend::Backend> = match backend_type {
+            BackendType::Auto => {
+                let preferred = *self.preferred_backend.read().await;
+                if preferred == BackendType::Auto {
+                    self.backend_registry.resolve(BackendType::Auto, node)
+                } else {
+                    self.backend_registry.resolve(preferred, node)
+                }
+            }
+            _ => self.backend_registry.resolve(backend_type, node),
+        };
+        Ok((backend_type, backend))
     }
 
     /// Load split tunnel rules from the database into memory.
@@ -334,6 +359,7 @@ impl AppState {
         } else {
             (None, None, None)
         };
+        let backend = *self.preferred_backend.read().await;
         Ok(ProxyStatus {
             running,
             selected_node,
@@ -343,6 +369,7 @@ impl AppState {
             pid,
             uptime_secs,
             last_error,
+            backend: Some(backend),
         })
     }
 
@@ -368,39 +395,19 @@ impl AppState {
             mixed: req.mixed_port,
         };
 
+        let backend_type = req.backend.unwrap_or(BackendType::Auto);
+        let (_resolved_type, backend) = self.resolve_backend(backend_type, &node.node).await?;
+        if !backend.supports(&node.node) {
+            anyhow::bail!("Selected backend does not support this node");
+        }
+
         let rules = self.split_tunnel_rules.read().await.clone();
-        let (core_type, config_json, actual_ports) = if requires_xray(&node.node) {
-            let xray_ports = XrayInboundPorts {
-                socks_port: ports.socks,
-                http_port: ports.http,
-                mixed_port: ports.mixed,
-            };
-            let config = generate_xray_config(&node.node, xray_ports, &rules)?;
-            (
-                CoreType::Xray,
-                config.json,
-                ProxyPorts {
-                    socks: config.socks_port,
-                    http: config.http_port,
-                    mixed: config.mixed_port,
-                },
-            )
-        } else {
-            let singbox_ports = InboundPorts {
-                socks_port: ports.socks,
-                http_port: ports.http,
-                mixed_port: ports.mixed,
-            };
-            let config = generate_singbox_config(&node.node, singbox_ports, &rules)?;
-            (
-                CoreType::SingBox,
-                config.json,
-                ProxyPorts {
-                    socks: config.socks_port,
-                    http: config.http_port,
-                    mixed: config.mixed_port,
-                },
-            )
+        let config = backend.generate_config(&node.node, ports, &rules)?;
+        let core_type = backend.core_type();
+        let actual_ports = ProxyPorts {
+            socks: config.socks_port,
+            http: config.http_port,
+            mixed: config.mixed_port,
         };
 
         // Xray requires explicit configuration or a binary in PATH.
@@ -420,7 +427,7 @@ impl AppState {
             manager.set_path(path);
         }
         manager.stop().await.ok();
-        manager.start(&config_json).await?;
+        manager.start(&config.json).await?;
 
         let mut stored_ports = self.proxy_ports.write().await;
         *stored_ports = Some(actual_ports);

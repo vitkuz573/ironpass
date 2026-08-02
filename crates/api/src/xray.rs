@@ -47,7 +47,18 @@ struct Log {
 
 /// Returns true if Xray-core is required for this node (XHTTP/Splithttp transports).
 pub fn requires_xray(node: &ProxyNode) -> bool {
-    matches!(node.transport, Transport::Xhttp | Transport::Splithttp)
+    crate::backend::supports_xray(node)
+}
+
+/// Xray-core backend marker type.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct XrayBackend;
+
+impl XrayBackend {
+    /// Create a new Xray-core backend instance.
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 /// Generate an Xray-core JSON config for `node` with the requested inbound ports.

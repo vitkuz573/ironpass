@@ -1,6 +1,7 @@
 use crate::api_client::ApiClient;
 use crate::args::OutputFormatArg;
 use color_eyre::eyre;
+use ironpass_api::backend::BackendType;
 use ironpass_api::models::StartProxyRequest;
 use uuid::Uuid;
 
@@ -10,6 +11,7 @@ pub async fn handle(
     socks_port: u16,
     http_port: u16,
     mixed_port: Option<u16>,
+    backend: BackendType,
 ) -> eyre::Result<()> {
     let client = ApiClient::with_url(api_url.into());
 
@@ -23,6 +25,7 @@ pub async fn handle(
         socks_port: Some(socks_port),
         http_port: Some(http_port),
         mixed_port,
+        backend: Some(backend),
     };
 
     let status = client.start_proxy(&req).await?;
@@ -33,6 +36,9 @@ pub async fn handle(
         println!("  Endpoint:  {}:{}", node.node.server, node.node.port);
         println!("  Protocol:  {:?}", node.node.protocol);
         println!("  Transport: {:?}", node.node.transport);
+    }
+    if let Some(backend) = status.backend {
+        println!("  Backend:   {:?}", backend);
     }
     if let Some(port) = status.socks_port {
         println!("  SOCKS5:    127.0.0.1:{}", port);

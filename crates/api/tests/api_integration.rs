@@ -170,6 +170,7 @@ async fn start_proxy_without_selection_is_bad_request() {
         socks_port: Some(11080),
         http_port: Some(11080),
         mixed_port: None,
+        backend: None,
     })
     .unwrap();
     let response = router

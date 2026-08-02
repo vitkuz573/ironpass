@@ -1,5 +1,6 @@
 //! API-specific domain models and request/response DTOs.
 
+use crate::backend::BackendType;
 use chrono::{DateTime, Utc};
 use ironpass_core::models::{HwidInfo, ProxyNode, SubscriptionMetadata};
 use serde::{Deserialize, Serialize};
@@ -127,6 +128,8 @@ pub struct StartProxyRequest {
     pub socks_port: Option<u16>,
     pub http_port: Option<u16>,
     pub mixed_port: Option<u16>,
+    #[serde(default)]
+    pub backend: Option<BackendType>,
 }
 
 /// Response body for proxy status.
@@ -140,6 +143,8 @@ pub struct ProxyStatus {
     pub pid: Option<u32>,
     pub uptime_secs: Option<u64>,
     pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backend: Option<BackendType>,
 }
 
 /// Aggregate health/status response.

@@ -1,4 +1,5 @@
 pub mod analyze;
+pub mod backend;
 pub mod completions;
 pub mod config_cmd;
 pub mod convert;
@@ -59,9 +60,10 @@ pub async fn dispatch(cli: Cli) -> eyre::Result<()> {
         Commands::Completions { shell } => completions::handle(shell),
         Commands::Config { action } => config_cmd::handle(&url, action).await,
         Commands::Ping { url, timeout } => ping::handle(url, timeout).await,
-        Commands::Proxy { node, socks_port, http_port, mixed_port } => {
-            proxy::handle(&url, node, socks_port, http_port, mixed_port).await
+        Commands::Proxy { node, socks_port, http_port, mixed_port, backend } => {
+            proxy::handle(&url, node, socks_port, http_port, mixed_port, backend.as_backend_type()).await
         }
+        Commands::Backend { action } => backend::handle(action, cli.json).await,
         Commands::SplitTunnel { action } => split_tunnel::handle(&url, action, cli.json).await,
     }
 }

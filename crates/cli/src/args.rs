@@ -149,6 +149,15 @@ pub enum Commands {
 
         #[arg(long, help = "Use mixed inbound on this port")]
         mixed_port: Option<u16>,
+
+        #[arg(long, value_enum, default_value_t = BackendTypeArg::Auto, help = "Backend to use (auto, sing-box, xray)")]
+        backend: BackendTypeArg,
+    },
+
+    #[command(about = "Manage proxy backends")]
+    Backend {
+        #[command(subcommand)]
+        action: BackendAction,
     },
 
     #[command(about = "Manage split tunnel (selective routing) rules")]
@@ -261,6 +270,29 @@ pub enum SubAction {
         #[arg(long, help = "Override HWID")]
         hwid: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum BackendAction {
+    #[command(about = "List supported proxy backends")]
+    List,
+}
+
+#[derive(Clone, ValueEnum)]
+pub enum BackendTypeArg {
+    Auto,
+    SingBox,
+    Xray,
+}
+
+impl BackendTypeArg {
+    pub fn as_backend_type(&self) -> ironpass_api::backend::BackendType {
+        match self {
+            BackendTypeArg::Auto => ironpass_api::backend::BackendType::Auto,
+            BackendTypeArg::SingBox => ironpass_api::backend::BackendType::SingBox,
+            BackendTypeArg::Xray => ironpass_api::backend::BackendType::Xray,
+        }
+    }
 }
 
 #[derive(Subcommand)]

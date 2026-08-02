@@ -68,13 +68,18 @@ impl Default for Route {
 
 /// Returns true if sing-box is required for this node (advanced transports / Reality).
 pub fn requires_singbox(node: &ProxyNode) -> bool {
-    matches!(
-        node.security,
-        Security::Reality | Security::RealityPsk
-    ) || matches!(
-        node.transport,
-        Transport::Xhttp | Transport::Splithttp | Transport::Grpc | Transport::H2 | Transport::Kcp
-    ) || matches!(node.protocol, Protocol::Hysteria2 | Protocol::Tuic | Protocol::WireGuard | Protocol::AnyTls)
+    crate::backend::supports_singbox(node)
+}
+
+/// Sing-box backend marker type.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SingBoxBackend;
+
+impl SingBoxBackend {
+    /// Create a new sing-box backend instance.
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 /// Generate a sing-box JSON config for `node` with the requested inbound ports.
