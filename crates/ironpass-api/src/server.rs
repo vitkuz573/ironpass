@@ -1,16 +1,21 @@
 //! API server setup and application router.
 
 use crate::state::AppState;
-use axum::Router;
+use axum::{Router, http::Method};
 use ironpass_config::ConfigManager;
 use ironpass_core::traits::HwidProvider;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
 
 /// Build the API application router.
 pub fn app(state: Arc<AppState>) -> Router {
-    crate::routes::router(state)
+    let cors = CorsLayer::new()
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_origin(Any)
+        .allow_headers(Any);
+    crate::routes::router(state).layer(cors)
 }
 
 /// Create default application state using XDG directories.
