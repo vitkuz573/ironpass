@@ -1,7 +1,7 @@
 use ironpass_core::{Error, Result, models::ProxyNode, models::Protocol};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use bytes::{Buf, BufMut, BytesMut};
+use bytes::{BufMut, BytesMut};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -12,6 +12,7 @@ const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x03;
 const ATYP_IPV6: u8 = 0x04;
 
+#[allow(clippy::large_enum_variant)]
 enum RemoteStream {
     Vless(crate::vless::VlessStream),
     Trojan(crate::trojan::TrojanStream),
@@ -148,7 +149,7 @@ async fn handle_socks_client(mut client: TcpStream, node: ProxyNode) -> Result<(
     };
 
     match connect_result {
-        Ok(mut remote) => {
+        Ok(remote) => {
             let mut resp = BytesMut::with_capacity(10);
             resp.put_u8(SOCKS5_VERSION);
             resp.put_u8(0x00);

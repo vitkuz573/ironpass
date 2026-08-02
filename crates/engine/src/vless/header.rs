@@ -13,7 +13,7 @@ pub enum VlessFlow {
 }
 
 impl VlessFlow {
-    pub fn from_str(s: &str) -> Self {
+    pub fn parse(s: &str) -> Self {
         match s {
             "xtls-rprx-vision" => Self::XtlsRprxVision,
             _ => Self::None,
@@ -28,7 +28,7 @@ pub fn encode_vless_request(
     node: &ProxyNode,
 ) -> BytesMut {
     let flow = node.flow.as_deref()
-        .map(VlessFlow::from_str)
+        .map(VlessFlow::parse)
         .unwrap_or(VlessFlow::None);
 
     let mut buf = BytesMut::with_capacity(256);
@@ -98,13 +98,14 @@ mod tests {
 
         let buf = encode_vless_request(&uuid, "example.com", 443, &node);
 
+        // VLESS request layout: ver(1) + uuid(16) + cmd(1) + rsv/proto(1) + port(2) + atyp(1) + addr
         assert_eq!(buf[0], 0); // version
         assert_eq!(buf[17], CMD_TCP); // command
-        assert_eq!(buf[19], 0); // flow: xtls-rprx-vision
-        assert_eq!(buf[20], 1); // port high byte
-        assert_eq!(buf[21], 187); // port low byte (443)
-        assert_eq!(buf[22], ATYP_DOMAIN); // address type
-        assert_eq!(buf[23], 11); // domain length
-        assert_eq!(&buf[24..35], b"example.com");
+        assert_eq!(buf[18], 0); // flow / rsv + proto
+        assert_eq!(buf[19], 1); // port high byte
+        assert_eq!(buf[20], 187); // port low byte (443)
+        assert_eq!(buf[21], ATYP_DOMAIN); // address type
+        assert_eq!(buf[22], 11); // domain length
+        assert_eq!(&buf[23..34], b"example.com");
     }
 }

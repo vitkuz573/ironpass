@@ -17,5 +17,6 @@ dirs = { workspace = true }
 tracing = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
+hex = { workspace = true }
 rusqlite = { workspace = true }
 chrono = { workspace = true }

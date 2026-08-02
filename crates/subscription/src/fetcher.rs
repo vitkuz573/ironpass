@@ -249,7 +249,7 @@ impl HttpSubscriptionFetcher {
                 }
 
                 if !retry_parsed.all_placeholders {
-                    return Ok(self.into_subscription(retry_parsed));
+                    return Ok(self.build_subscription(retry_parsed));
                 }
 
                 warn!("Retry {} still returned placeholders", attempt);
@@ -270,10 +270,10 @@ impl HttpSubscriptionFetcher {
             ));
         }
 
-        Ok(self.into_subscription(parsed))
+        Ok(self.build_subscription(parsed))
     }
 
-    fn into_subscription(&self, parsed: ParsedResponse) -> Subscription {
+    fn build_subscription(&self, parsed: ParsedResponse) -> Subscription {
         Subscription {
             id: uuid::Uuid::new_v4(),
             url: parsed.url,
@@ -373,16 +373,12 @@ impl PlaceholderPolicy {
     }
 
     /// Conservative default matching the historical behavior of [`is_placeholder_node`].
-    pub fn default() -> Self {
+    pub fn standard() -> Self {
         let zero_uuid = Uuid::nil();
         let mut policy = Self::with_threshold(2);
 
-        for addr in ["0.0.0.0"] {
-            policy.dummy_addresses.insert(addr.to_string());
-        }
-        for prefix in ["0."] {
-            policy.dummy_address_prefixes.push(prefix.to_string());
-        }
+        policy.dummy_addresses.insert("0.0.0.0".to_string());
+        policy.dummy_address_prefixes.push("0.".to_string());
         for port in [0u16, 1] {
             policy.dummy_ports.insert(port);
         }
@@ -408,9 +404,7 @@ impl PlaceholderPolicy {
         ] {
             policy.dummy_addresses.insert(addr.to_string());
         }
-        for prefix in ["0."] {
-            policy.dummy_address_prefixes.push(prefix.to_string());
-        }
+        policy.dummy_address_prefixes.push("0.".to_string());
         for port in [0u16, 1, 2, 3, 80, 8080] {
             policy.dummy_ports.insert(port);
         }
@@ -453,12 +447,11 @@ impl PlaceholderPolicy {
             return true;
         }
 
-        if let Some(uuid_str) = node.uuid.as_deref() {
-            if let Ok(uuid) = Uuid::parse_str(uuid_str) {
-                if self.dummy_uuids.contains(&uuid) {
-                    return true;
-                }
-            }
+        if let Some(uuid_str) = node.uuid.as_deref()
+            && let Ok(uuid) = Uuid::parse_str(uuid_str)
+            && self.dummy_uuids.contains(&uuid)
+        {
+            return true;
         }
 
         if self.is_user_dummy_address(&node.server) {
@@ -490,12 +483,11 @@ impl PlaceholderPolicy {
             score += 1;
         }
 
-        if let Some(uuid_str) = node.uuid.as_deref() {
-            if let Ok(uuid) = Uuid::parse_str(uuid_str) {
-                if self.dummy_uuids.contains(&uuid) {
-                    score += 1;
-                }
-            }
+        if let Some(uuid_str) = node.uuid.as_deref()
+            && let Ok(uuid) = Uuid::parse_str(uuid_str)
+            && self.dummy_uuids.contains(&uuid)
+        {
+            score += 1;
         }
 
         if self.is_sentinel_domain(&node.server) {
@@ -521,10 +513,10 @@ impl PlaceholderPolicy {
         {
             return true;
         }
-        if let Ok(ip) = addr.parse::<IpAddr>() {
-            if ip.is_loopback() || ip.is_unspecified() {
-                return true;
-            }
+        if let Ok(ip) = addr.parse::<IpAddr>()
+            && (ip.is_loopback() || ip.is_unspecified())
+        {
+            return true;
         }
         false
     }
@@ -537,7 +529,7 @@ impl PlaceholderPolicy {
 
 impl Default for PlaceholderPolicy {
     fn default() -> Self {
-        Self::default()
+        Self::standard()
     }
 }
 

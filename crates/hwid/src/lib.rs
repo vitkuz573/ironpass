@@ -29,10 +29,10 @@ impl SystemHwidProvider {
     }
 
     fn load_or_generate(&self) -> Result<HwidInfo> {
-        if let Ok(data) = fs::read_to_string(self.hwid_file()) {
-            if let Ok(info) = serde_json::from_str::<HwidInfo>(&data) {
-                return Ok(info);
-            }
+        if let Ok(data) = fs::read_to_string(self.hwid_file())
+            && let Ok(info) = serde_json::from_str::<HwidInfo>(&data)
+        {
+            return Ok(info);
         }
 
         let info = self.generate_new()?;
@@ -54,7 +54,7 @@ impl SystemHwidProvider {
         let os = detect_os();
 
         let raw = format!("{}:{}:{}:{}", hostname, username, machine_id, device_model);
-        let hwid = format!("{:x}", Sha256::digest(raw.as_bytes()));
+        let hwid = hex::encode(Sha256::digest(raw.as_bytes()));
 
         Ok(HwidInfo {
             hwid,
@@ -113,7 +113,7 @@ fn detect_os() -> String {
         if let Ok(content) = fs::read_to_string("/etc/os-release") {
             let pretty = content.lines()
                 .find(|l| l.starts_with("PRETTY_NAME="))
-                .and_then(|l| l.splitn(2, '=').nth(1))
+                .and_then(|l| l.split_once('=').map(|x| x.1))
                 .map(|s| s.trim_matches('"').to_string());
             if let Some(name) = pretty {
                 if kernel.is_empty() {

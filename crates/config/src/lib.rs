@@ -7,7 +7,7 @@ const APP_NAME: &str = "ironpass";
 const CONFIG_FILE: &str = "config.toml";
 const SUBSCRIPTIONS_FILE: &str = "subscriptions.json";
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -156,18 +156,6 @@ fn default_format() -> String { "clash".into() }
 fn default_pretty() -> bool { true }
 fn default_log_level() -> String { "info".into() }
 fn default_log_file() -> bool { true }
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            subscription: SubscriptionConfig::default(),
-            hwid: HwidConfig::default(),
-            output: OutputConfig::default(),
-            logging: LoggingConfig::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredSubscription {

@@ -4,12 +4,12 @@ pub mod tls;
 
 use ironpass_core::{Error, Result, models::ProxyNode, models::Transport};
 use tokio::io::{AsyncRead, AsyncWrite};
-use bytes::{Buf, BufMut, BytesMut};
-use sha2::{Sha256, Digest};
-use rand::RngCore;
+use bytes::BytesMut;
+use rand_core::{Rng, TryRng};
 
 use crate::transport;
 
+#[allow(dead_code)]
 const VLESS_VERSION: u8 = 0;
 
 #[derive(Debug, Clone)]
@@ -18,6 +18,7 @@ pub struct VlessClient {
     uuid: Vec<u8>,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum VlessStream {
     Tls(tokio_rustls::client::TlsStream<tokio::net::TcpStream>),
     Grpc(transport::GrpcTransport),
@@ -151,6 +152,12 @@ fn parse_uuid(uuid_str: &str) -> Result<Vec<u8>> {
 
 pub fn generate_random_bytes(len: usize) -> Vec<u8> {
     let mut buf = vec![0u8; len];
-    rand::thread_rng().fill_bytes(&mut buf);
+    rand::rng().try_fill_bytes(&mut buf)
+        .unwrap_or_else(|e| panic!("Failed to generate random bytes: {}", e));
     buf
+}
+
+// Compatibility helper: provide `RngCore::fill_bytes` semantics for legacy code.
+pub fn fill_random_bytes(buf: &mut [u8]) {
+    rand::rng().fill_bytes(buf);
 }

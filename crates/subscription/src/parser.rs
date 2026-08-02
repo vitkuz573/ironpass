@@ -3,19 +3,6 @@ use base64::engine::general_purpose::STANDARD;
 use ironpass_core::{Error, Result, models::*};
 use regex::Regex;
 
-fn decode_percent(s: &str) -> String {
-    url::form_urlencoded::byte_serialize(s.as_bytes())
-        .collect::<String>()
-        .replace("%20", " ")
-        .replace("%3A", ":")
-        .replace("%2C", ",")
-        .replace("%23", "#")
-        .replace("%26", "&")
-        .replace("%3F", "?")
-        .replace("%3D", "=")
-        .replace("%2F", "/")
-}
-
 fn decode_name(raw: &str) -> String {
     percent_decode(raw)
 }
@@ -41,29 +28,28 @@ impl SubscriptionParser {
     pub fn detect_format(&self, input: &str) -> SubscriptionFormat {
         let trimmed = input.trim();
 
-        if trimmed.starts_with("{") || trimmed.starts_with("[") {
-            if trimmed.contains("\"outbounds\"") || trimmed.contains("\"inbounds\"") {
-                return SubscriptionFormat::SingBoxJson;
-            }
+        if (trimmed.starts_with("{") || trimmed.starts_with("["))
+            && (trimmed.contains("\"outbounds\"") || trimmed.contains("\"inbounds\""))
+        {
+            return SubscriptionFormat::SingBoxJson;
         }
 
         if trimmed.contains("proxies:") && trimmed.contains("proxy-groups:") {
             return SubscriptionFormat::ClashYaml;
         }
 
-        if let Ok(decoded) = STANDARD.decode(trimmed) {
-            if let Ok(text) = String::from_utf8(decoded) {
-                if text.lines().any(|l| {
-                    l.starts_with("vless://")
-                        || l.starts_with("vmess://")
-                        || l.starts_with("trojan://")
-                        || l.starts_with("ss://")
-                        || l.starts_with("hysteria2://")
-                        || l.starts_with("tuic://")
-                }) {
-                    return SubscriptionFormat::Base64VlessList;
-                }
-            }
+        if let Ok(decoded) = STANDARD.decode(trimmed)
+            && let Ok(text) = String::from_utf8(decoded)
+            && text.lines().any(|l| {
+                l.starts_with("vless://")
+                    || l.starts_with("vmess://")
+                    || l.starts_with("trojan://")
+                    || l.starts_with("ss://")
+                    || l.starts_with("hysteria2://")
+                    || l.starts_with("tuic://")
+            })
+        {
+            return SubscriptionFormat::Base64VlessList;
         }
 
         if trimmed.lines().any(|l| {

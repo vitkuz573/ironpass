@@ -7,6 +7,7 @@ use ironpass_core::models::OutputFormat;
 use ironpass_subscription::{NodeExporterImpl, SubscriptionService, is_placeholder_node};
 use tracing::info;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn fetch(
     manager: &ConfigManager,
     url: Option<String>,

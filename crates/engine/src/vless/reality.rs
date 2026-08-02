@@ -2,7 +2,8 @@ use ironpass_core::{Error, Result, models::ProxyNode};
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use x25519_dalek::{EphemeralSecret, PublicKey};
-use rand_core::OsRng;
+use base64::Engine;
+use rand::{rngs::StdRng, SeedableRng};
 
 pub async fn connect_reality(
     tcp: TcpStream,
@@ -15,10 +16,9 @@ pub async fn connect_reality(
     let pub_key_b64 = node.public_key.as_deref()
         .ok_or_else(|| Error::Parse("Reality requires public_key (pbk)".into()))?;
 
-    let pub_key_bytes = base64::Engine::decode(
-        &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-        pub_key_b64,
-    ).map_err(|e| Error::Parse(format!("Invalid pbk base64: {}", e)))?;
+    let pub_key_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(pub_key_b64)
+        .map_err(|e| Error::Parse(format!("Invalid pbk base64: {}", e)))?;
 
     if pub_key_bytes.len() != 32 {
         return Err(Error::Parse(format!("Invalid pbk length: {}", pub_key_bytes.len())));
@@ -28,8 +28,9 @@ pub async fn connect_reality(
     pub_key_arr.copy_from_slice(&pub_key_bytes);
     let server_public_key = PublicKey::from(pub_key_arr);
 
-    let client_secret = EphemeralSecret::random_from_rng(OsRng);
-    let client_public = PublicKey::from(&client_secret);
+    let mut rng = StdRng::from_rng(&mut rand::rng());
+    let client_secret = EphemeralSecret::random_from_rng(&mut rng);
+    let _client_public = PublicKey::from(&client_secret);
 
     let shared_secret = client_secret.diffie_hellman(&server_public_key);
 

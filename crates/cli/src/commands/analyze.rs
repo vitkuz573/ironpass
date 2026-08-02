@@ -62,10 +62,10 @@ pub async fn handle(
         println!("Nodes:       {} total ({} real, {} placeholder)", nodes.len(), real.len(), placeholders.len());
 
         if let Some(used) = sub.traffic_used {
-            println!("Traffic:     {} used", bytesize::to_string(used, true));
+            println!("Traffic:     {} used", bytesize::ByteSize(used).display());
         }
         if let Some(total) = sub.traffic_total {
-            println!("  Total:     {}", bytesize::to_string(total, true));
+            println!("  Total:     {}", bytesize::ByteSize(total).display());
         }
 
         if !protocols.is_empty() {

@@ -30,14 +30,14 @@ thiserror = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }
 sha2 = { workspace = true }
-hmac = "0.12"
-pbkdf2 = { version = "0.12", features = ["hmac"] }
-aes = "0.8"
-cipher = "0.4"
-rand_core = "0.6"
+hmac = "0.13"
+pbkdf2 = { version = "0.13", features = ["hmac"] }
+aes = "0.9"
+cipher = "0.5"
+rand_core = "0.10"
 ring = "0.17"
 webpki = { version = "0.22", features = ["std"] }
-webpki-roots = "0.26"
+webpki-roots = "1.0"
 tokio-rustls = "0.26"
 hex = "0.4"
 http = "1"

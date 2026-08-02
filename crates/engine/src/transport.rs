@@ -1,5 +1,5 @@
 use ironpass_core::{Error, Result};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use std::pin::Pin;
@@ -37,7 +37,7 @@ impl AsyncRead for GrpcTransport {
                         }
                     }
                     Poll::Ready(Some(Err(e))) => {
-                        return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)));
+                        return Poll::Ready(Err(std::io::Error::other(e)));
                     }
                     Poll::Ready(None) => {
                         return Poll::Ready(Ok(()));
@@ -54,7 +54,7 @@ impl AsyncRead for GrpcTransport {
                         continue;
                     }
                     Poll::Ready(Err(e)) => {
-                        return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)));
+                        return Poll::Ready(Err(std::io::Error::other(e)));
                     }
                     Poll::Pending => return Poll::Pending,
                 }
@@ -76,12 +76,12 @@ impl AsyncWrite for GrpcTransport {
                 let n = buf.len().min(capacity);
                 let data = Bytes::copy_from_slice(&buf[..n]);
                 if let Err(e) = self.tx.send_data(data, false) {
-                    return Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)));
+                    return Poll::Ready(Err(std::io::Error::other(e)));
                 }
                 Poll::Ready(Ok(n))
             }
             Poll::Ready(Some(Err(e))) => {
-                Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::Other, e)))
+                Poll::Ready(Err(std::io::Error::other(e)))
             }
             Poll::Ready(None) => {
                 Poll::Ready(Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "stream closed")))
@@ -90,7 +90,7 @@ impl AsyncWrite for GrpcTransport {
         }
     }
 
-    fn poll_flush(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 

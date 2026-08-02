@@ -4,7 +4,7 @@ pub mod socks5;
 pub mod transport;
 pub mod proxy;
 
-use ironpass_core::{Error, Result, models::ProxyNode};
+use ironpass_core::{Result, models::ProxyNode};
 
 /// Install the ring crypto provider for rustls (must be called once before any TLS usage)
 pub fn install_crypto_provider() {

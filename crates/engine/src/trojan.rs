@@ -1,6 +1,6 @@
 use ironpass_core::{Error, Result, models::ProxyNode, models::Transport};
 use sha2::{Sha224, Digest};
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf, AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use std::pin::Pin;
 use std::task::{Context, Poll};

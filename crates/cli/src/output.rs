@@ -70,10 +70,10 @@ pub fn print_nodes_table(nodes: &[ProxyNode], sub: &Subscription) -> io::Result<
     writeln!(handle, "  URL:        {}", sub.url)?;
     writeln!(handle, "  Fetched:    {}", sub.fetched_at.format("%Y-%m-%d %H:%M:%S UTC"))?;
     if let Some(used) = sub.traffic_used {
-        writeln!(handle, "  Traffic:    {} used", bytesize::to_string(used, true))?;
+        writeln!(handle, "  Traffic:    {} used", bytesize::ByteSize(used).display())?;
     }
     if let Some(total) = sub.traffic_total {
-        writeln!(handle, "    Total:    {}", bytesize::to_string(total, true))?;
+        writeln!(handle, "    Total:    {}", bytesize::ByteSize(total).display())?;
     }
     writeln!(handle, "  Nodes:      {}", nodes.len())?;
     writeln!(handle, "{}", style("─".repeat(90)).dim())?;

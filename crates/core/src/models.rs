@@ -87,7 +87,7 @@ impl ProxyNode {
 /// `profile-title`, `profile-update-interval`, `profile-web-page-url` and
 /// `announce`/`announces`. Values prefixed with `base64:` are decoded
 /// automatically. HTTP response headers take precedence over inline body values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SubscriptionMetadata {
     /// Human-readable profile title, if provided.
     pub profile_title: Option<String>,
@@ -99,18 +99,6 @@ pub struct SubscriptionMetadata {
     pub announcement: Option<String>,
     /// Raw map of all recognised header keys and their (decoded) values.
     pub headers: HashMap<String, String>,
-}
-
-impl Default for SubscriptionMetadata {
-    fn default() -> Self {
-        Self {
-            profile_title: None,
-            profile_update_interval_hours: None,
-            profile_web_page_url: None,
-            announcement: None,
-            headers: HashMap::new(),
-        }
-    }
 }
 
 /// A fully parsed subscription, including nodes, traffic accounting, expiry and metadata.
