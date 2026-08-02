@@ -1,14 +1,37 @@
-use ironpass_core::{Error, Result, models::*, traits::*};
 use async_trait::async_trait;
+use ironpass_core::{Error, Result, models::*, traits::*};
 use tracing::{info, warn};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Controls optional behaviour of the HTTP subscription fetcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FetchOptions {
+    /// Automatically generate a HWID and retry when the server returns placeholders.
+    pub auto_hwid_retry: bool,
+    /// Maximum number of HWID retries. Defaults to 1.
+    pub max_hwid_retries: usize,
+}
+
+impl Default for FetchOptions {
+    fn default() -> Self {
+        Self {
+            auto_hwid_retry: true,
+            max_hwid_retries: 1,
+        }
+    }
+}
+
+/// HTTP implementation of [`SubscriptionFetcher`] with dependency-injected
+/// [`reqwest::Client`] and [`HwidProvider`] for testability.
 pub struct HttpSubscriptionFetcher {
     client: reqwest::Client,
+    hwid_provider: Box<dyn HwidProvider>,
+    options: FetchOptions,
 }
 
 impl HttpSubscriptionFetcher {
+    /// Create a fetcher using the default HTTP client and the system HWID provider.
     pub fn new() -> Self {
         let user_agent = format!("IronPass/{}", VERSION);
         let client = reqwest::Client::builder()
@@ -18,49 +41,77 @@ impl HttpSubscriptionFetcher {
             .build()
             .expect("Failed to create HTTP client");
 
-        Self { client }
+        Self {
+            client,
+            hwid_provider: Box::new(ironpass_hwid::SystemHwidProvider::new()),
+            options: FetchOptions::default(),
+        }
     }
-}
 
-impl Default for HttpSubscriptionFetcher {
-    fn default() -> Self {
-        Self::new()
+    /// Create a fetcher with a fully custom HTTP client, HWID provider and options.
+    pub fn with_client_and_provider(
+        client: reqwest::Client,
+        hwid_provider: Box<dyn HwidProvider>,
+        options: FetchOptions,
+    ) -> Self {
+        Self {
+            client,
+            hwid_provider,
+            options,
+        }
     }
-}
 
-#[async_trait]
-impl SubscriptionFetcher for HttpSubscriptionFetcher {
-    async fn fetch(&self, url: &str, hwid: Option<&str>) -> Result<Subscription> {
-        info!("Fetching subscription from: {}", mask_url(url));
+    /// Create a fetcher with a custom HTTP client and options, still using the system HWID provider.
+    pub fn with_client(client: reqwest::Client, options: FetchOptions) -> Self {
+        Self {
+            client,
+            hwid_provider: Box::new(ironpass_hwid::SystemHwidProvider::new()),
+            options,
+        }
+    }
+
+    /// Build the [`reqwest::RequestBuilder`] for a fetch attempt.
+    fn build_request(&self, url: &str, hwid: Option<&str>) -> Result<reqwest::RequestBuilder> {
+        info!("Building request for: {}", mask_url(url));
 
         let mut request = self.client.get(url);
 
         if let Some(id) = hwid {
             request = request.header("x-hwid", id);
 
-            let provider = ironpass_hwid::SystemHwidProvider::new();
-            let info = provider.get_device_info().ok();
+            let info = self.hwid_provider.get_device_info().ok();
 
             if let Some(ref info) = info {
-                request = request.header("x-device-model", &info.device_model);
-
-                let os_short = info.os.split('(').next().unwrap_or(&info.os).trim().to_string();
+                let os_short = info
+                    .os
+                    .split('(')
+                    .next()
+                    .unwrap_or(&info.os)
+                    .trim()
+                    .to_string();
                 let ua = format!("IronPass/{} ({})", VERSION, os_short);
-                request = request.header("User-Agent", &ua);
+
+                request = request.header("x-device-model", &info.device_model);
                 request = request.header("x-device-os", &os_short);
                 request = request.header("x-ver-os", &info.os);
+                request = request.header("User-Agent", &ua);
 
                 info!("Sending HWID: {}...", &id[..id.len().min(16)]);
                 info!("Device: {}", info.device_model);
                 info!("OS: {} (short: {})", info.os, os_short);
                 info!("UA: {}", ua);
             } else {
-                request = request.header("x-hwid", id);
+                warn!("HWID provided but device info unavailable");
             }
         } else {
             warn!("No HWID provided — server may return placeholder nodes");
         }
 
+        Ok(request)
+    }
+
+    /// Execute the HTTP request and materialise a raw response.
+    async fn execute_request(&self, request: reqwest::RequestBuilder) -> Result<HttpResponse> {
         let response = request.send().await?;
         let status = response.status();
 
@@ -74,23 +125,27 @@ impl SubscriptionFetcher for HttpSubscriptionFetcher {
         let headers = response.headers().clone();
         let body = response.text().await?;
 
-        let traffic_used = headers
-            .get("subscription-userinfo")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| parse_subscription_info(s).map(|i| i.0));
+        Ok(HttpResponse { headers, body })
+    }
 
-        let traffic_total = headers
+    /// Parse the response body into a list of [`ProxyNode`]s and traffic metadata.
+    fn parse_response(&self, url: &str, response: HttpResponse) -> Result<ParsedResponse> {
+        let userinfo = response
+            .headers
             .get("subscription-userinfo")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| parse_subscription_info(s).map(|i| i.1));
+            .and_then(|v| v.to_str().ok());
+
+        let (traffic_used, traffic_total, expires_at) =
+            userinfo.map(parse_subscription_info).unwrap_or_default();
 
         let parser = super::parser::SubscriptionParser::new();
-        let format = parser.detect_format(&body);
-        let nodes = parser.parse(&body)?;
+        let format = parser.detect_format(&response.body);
+        let nodes = parser.parse(&response.body)?;
 
         let placeholder_count = nodes.iter().filter(|n| is_placeholder_node(n)).count();
+        let all_placeholders = !nodes.is_empty() && placeholder_count == nodes.len();
 
-        if placeholder_count > 0 && placeholder_count == nodes.len() {
+        if all_placeholders {
             warn!(
                 "All {} nodes are placeholders — HWID likely required or device limit reached",
                 nodes.len()
@@ -105,49 +160,358 @@ impl SubscriptionFetcher for HttpSubscriptionFetcher {
             placeholder_count
         );
 
-        Ok(Subscription {
-            id: uuid::Uuid::new_v4(),
+        Ok(ParsedResponse {
             url: url.to_string(),
-            name: None,
             nodes,
-            fetched_at: chrono::Utc::now(),
-            expires_at: None,
+            all_placeholders,
+            hwid_limit: is_hwid_limit(&response.headers),
             traffic_used,
             traffic_total,
+            expires_at,
         })
+    }
+
+    /// Apply the HWID retry policy.
+    ///
+    /// When no explicit HWID was supplied, the response only contains placeholder nodes,
+    /// and retrying is enabled, generate a HWID and retry up to `max_hwid_retries` times.
+    async fn apply_retry_policy(
+        &self,
+        url: &str,
+        supplied_hwid: Option<&str>,
+        parsed: ParsedResponse,
+    ) -> Result<Subscription> {
+        if supplied_hwid.is_none() && parsed.all_placeholders && self.options.auto_hwid_retry {
+            let mut last_error: Option<Error> = None;
+
+            for attempt in 1..=self.options.max_hwid_retries {
+                info!(
+                    "HWID retry attempt {}/{}",
+                    attempt, self.options.max_hwid_retries
+                );
+
+                let generated = match self.hwid_provider.generate() {
+                    Ok(id) => id,
+                    Err(e) => {
+                        warn!("Failed to generate HWID: {}", e);
+                        last_error = Some(e);
+                        continue;
+                    }
+                };
+
+                let request = self.build_request(url, Some(&generated))?;
+                let response = match self.execute_request(request).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("HWID retry request failed: {}", e);
+                        last_error = Some(e);
+                        continue;
+                    }
+                };
+
+                let retry_parsed = match self.parse_response(url, response) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!("HWID retry response parsing failed: {}", e);
+                        last_error = Some(e);
+                        continue;
+                    }
+                };
+
+                if retry_parsed.hwid_limit {
+                    warn!("Server reported HWID device limit on retry");
+                    return Err(Error::DeviceLimitExceeded {
+                        current: retry_parsed.nodes.len(),
+                        limit: 1,
+                    });
+                }
+
+                if !retry_parsed.all_placeholders {
+                    return Ok(self.into_subscription(retry_parsed));
+                }
+
+                warn!("Retry {} still returned placeholders", attempt);
+                last_error = Some(Error::Custom(
+                    "Server returned placeholder nodes after HWID retry".to_string(),
+                ));
+            }
+
+            return Err(last_error.unwrap_or_else(|| {
+                Error::Custom("HWID retry exhausted without success".to_string())
+            }));
+        }
+
+        if parsed.hwid_limit {
+            warn!("Server reported HWID device limit");
+            return Err(Error::DeviceLimitExceeded {
+                current: parsed.nodes.len(),
+                limit: 1,
+            });
+        }
+
+        if parsed.all_placeholders {
+            warn!("Placeholder response and HWID retry is disabled or already supplied");
+            return Err(Error::Custom(
+                "Subscription returned only placeholder nodes".to_string(),
+            ));
+        }
+
+        Ok(self.into_subscription(parsed))
+    }
+
+    fn into_subscription(&self, parsed: ParsedResponse) -> Subscription {
+        Subscription {
+            id: uuid::Uuid::new_v4(),
+            url: parsed.url,
+            name: None,
+            nodes: parsed.nodes,
+            fetched_at: chrono::Utc::now(),
+            expires_at: parsed.expires_at,
+            traffic_used: parsed.traffic_used,
+            traffic_total: parsed.traffic_total,
+        }
+    }
+}
+
+impl Default for HttpSubscriptionFetcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl SubscriptionFetcher for HttpSubscriptionFetcher {
+    async fn fetch(&self, url: &str, hwid: Option<&str>) -> Result<Subscription> {
+        info!("Fetching subscription from: {}", mask_url(url));
+
+        let request = self.build_request(url, hwid)?;
+        let response = self.execute_request(request).await?;
+        let parsed = self.parse_response(url, response)?;
+        self.apply_retry_policy(url, hwid, parsed).await
+    }
+}
+
+struct HttpResponse {
+    headers: reqwest::header::HeaderMap,
+    body: String,
+}
+
+struct ParsedResponse {
+    url: String,
+    nodes: Vec<ProxyNode>,
+    all_placeholders: bool,
+    hwid_limit: bool,
+    traffic_used: Option<u64>,
+    traffic_total: Option<u64>,
+    expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn is_hwid_limit(headers: &reqwest::header::HeaderMap) -> bool {
+    headers
+        .get("x-hwid-limit")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+use std::collections::HashSet;
+use std::net::IpAddr;
+use uuid::Uuid;
+
+/// Configurable policy for detecting placeholder / sentinel proxy nodes.
+#[derive(Debug, Clone)]
+pub struct PlaceholderPolicy {
+    dummy_addresses: HashSet<String>,
+    dummy_address_prefixes: Vec<String>,
+    dummy_ports: HashSet<u16>,
+    dummy_uuids: HashSet<Uuid>,
+    sentinel_domains: HashSet<String>,
+    /// Minimum number of independent criteria that must match for a node to be
+    /// flagged as a placeholder, unless a hard sentinel is matched first.
+    score_threshold: usize,
+}
+
+impl PlaceholderPolicy {
+    /// Create an empty policy with a given scoring threshold.
+    fn with_threshold(score_threshold: usize) -> Self {
+        Self {
+            dummy_addresses: HashSet::new(),
+            dummy_address_prefixes: Vec::new(),
+            dummy_ports: HashSet::new(),
+            dummy_uuids: HashSet::new(),
+            sentinel_domains: HashSet::new(),
+            score_threshold,
+        }
+    }
+
+    /// Conservative default matching the historical behavior of [`is_placeholder_node`].
+    pub fn default() -> Self {
+        let zero_uuid = Uuid::nil();
+        let mut policy = Self::with_threshold(2);
+
+        for addr in ["0.0.0.0"] {
+            policy.dummy_addresses.insert(addr.to_string());
+        }
+        for prefix in ["0."] {
+            policy.dummy_address_prefixes.push(prefix.to_string());
+        }
+        for port in [0u16, 1] {
+            policy.dummy_ports.insert(port);
+        }
+        policy.dummy_uuids.insert(zero_uuid);
+
+        policy
+    }
+
+    /// Strict enterprise policy that catches common provider sentinel values.
+    pub fn strict() -> Self {
+        let zero_uuid = Uuid::nil();
+        let mut policy = Self::with_threshold(2);
+
+        for addr in [
+            "0.0.0.0",
+            "127.0.0.1",
+            "::1",
+            "::",
+            "localhost",
+            "example.com",
+            "test.com",
+            "invalid",
+        ] {
+            policy.dummy_addresses.insert(addr.to_string());
+        }
+        for prefix in ["0."] {
+            policy.dummy_address_prefixes.push(prefix.to_string());
+        }
+        for port in [0u16, 1, 2, 3, 80, 8080] {
+            policy.dummy_ports.insert(port);
+        }
+        policy.dummy_uuids.insert(zero_uuid);
+        for domain in ["example.com", "test.com", "invalid", "localhost"] {
+            policy.sentinel_domains.insert(domain.to_string());
+        }
+
+        policy
+    }
+
+    /// Add a literal dummy address (e.g. `"0.0.0.0"`).
+    pub fn add_dummy_address(&mut self, addr: &str) {
+        self.dummy_addresses.insert(addr.to_lowercase());
+    }
+
+    /// Add a dummy UUID sentinel (in addition to the nil UUID).
+    pub fn add_dummy_uuid(&mut self, uuid: Uuid) {
+        self.dummy_uuids.insert(uuid);
+    }
+
+    /// Returns true if the node is considered a placeholder under this policy.
+    pub fn is_placeholder(&self, node: &ProxyNode) -> bool {
+        let hard_sentinel = self.is_hard_sentinel(node);
+        if hard_sentinel {
+            return true;
+        }
+
+        let score = self.score(node);
+        score >= self.score_threshold
+    }
+
+    /// Hard sentinels always flag a node regardless of scoring.
+    fn is_hard_sentinel(&self, node: &ProxyNode) -> bool {
+        if self.is_zero_address(&node.server) {
+            return true;
+        }
+
+        if self.dummy_ports.contains(&node.port) && (node.port == 0 || node.port == 1) {
+            return true;
+        }
+
+        if let Some(uuid_str) = node.uuid.as_deref() {
+            if let Ok(uuid) = Uuid::parse_str(uuid_str) {
+                if self.dummy_uuids.contains(&uuid) {
+                    return true;
+                }
+            }
+        }
+
+        if self.is_user_dummy_address(&node.server) {
+            return true;
+        }
+
+        false
+    }
+
+    /// Addresses explicitly added via [`PlaceholderPolicy::add_dummy_address`].
+    fn is_user_dummy_address(&self, addr: &str) -> bool {
+        let lower = addr.to_lowercase();
+        self.dummy_addresses.contains(&lower) && !self.is_built_in_dummy_address(addr)
+    }
+
+    fn is_built_in_dummy_address(&self, addr: &str) -> bool {
+        matches!(addr, "127.0.0.1" | "::1" | "::" | "localhost")
+    }
+
+    /// Count independent criteria matched by the node.
+    fn score(&self, node: &ProxyNode) -> usize {
+        let mut score = 0;
+
+        if self.is_dummy_address(&node.server) {
+            score += 1;
+        }
+
+        if self.dummy_ports.contains(&node.port) {
+            score += 1;
+        }
+
+        if let Some(uuid_str) = node.uuid.as_deref() {
+            if let Ok(uuid) = Uuid::parse_str(uuid_str) {
+                if self.dummy_uuids.contains(&uuid) {
+                    score += 1;
+                }
+            }
+        }
+
+        if self.is_sentinel_domain(&node.server) {
+            score += 1;
+        }
+
+        score
+    }
+
+    fn is_zero_address(&self, addr: &str) -> bool {
+        addr == "0.0.0.0"
+    }
+
+    fn is_dummy_address(&self, addr: &str) -> bool {
+        let lower = addr.to_lowercase();
+        if self.dummy_addresses.contains(&lower) {
+            return true;
+        }
+        if self.dummy_address_prefixes.iter().any(|p| lower.starts_with(p)) {
+            return true;
+        }
+        if let Ok(ip) = addr.parse::<IpAddr>() {
+            if ip.is_loopback() || ip.is_unspecified() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_sentinel_domain(&self, addr: &str) -> bool {
+        let lower = addr.to_lowercase();
+        self.sentinel_domains.contains(&lower)
+    }
+}
+
+impl Default for PlaceholderPolicy {
+    fn default() -> Self {
+        Self::default()
     }
 }
 
 /// Placeholder detection via protocol-level signals only.
 pub fn is_placeholder_node(node: &ProxyNode) -> bool {
-    if is_dummy_address(&node.server) {
-        return true;
-    }
-
-    if node.port == 0 || node.port == 1 {
-        return true;
-    }
-
-    if let Some(ref uuid) = node.uuid {
-        if uuid == "00000000-0000-0000-0000-000000000000" {
-            return true;
-        }
-    }
-
-    false
-}
-
-fn is_dummy_address(addr: &str) -> bool {
-    matches!(
-        addr,
-        "0.0.0.0"
-            | "127.0.0.1"
-            | "::1"
-            | "::"
-            | "localhost"
-            | "example.com"
-            | "test.com"
-    ) || addr.starts_with("0.")
+    PlaceholderPolicy::default().is_placeholder(node)
 }
 
 pub fn placeholder_messages(nodes: &[ProxyNode]) -> Vec<String> {
@@ -171,27 +535,321 @@ fn mask_url(url: &str) -> String {
     }
 }
 
-fn parse_subscription_info(info: &str) -> Option<(u64, u64)> {
-    let upload: u64 = info
-        .split(';')
-        .find(|s| s.contains("upload="))
-        .and_then(|s| s.split('=').last())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+fn parse_subscription_info(
+    info: &str,
+) -> (
+    Option<u64>,
+    Option<u64>,
+    Option<chrono::DateTime<chrono::Utc>>,
+) {
+    let mut upload: Option<u64> = None;
+    let mut download: Option<u64> = None;
+    let mut total: Option<u64> = None;
+    let mut expire: Option<i64> = None;
 
-    let download: u64 = info
-        .split(';')
-        .find(|s| s.contains("download="))
-        .and_then(|s| s.split('=').last())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    for part in info.split(';') {
+        let part = part.trim();
+        if let Some((key, value)) = part.split_once('=') {
+            let key = key.trim();
+            let value = value.trim();
+            match key {
+                "upload" => upload = value.parse().ok(),
+                "download" => download = value.parse().ok(),
+                "total" => total = value.parse().ok(),
+                "expire" => expire = value.parse().ok(),
+                _ => {}
+            }
+        }
+    }
 
-    let total: u64 = info
-        .split(';')
-        .find(|s| s.contains("total="))
-        .and_then(|s| s.split('=').last())
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let used = upload
+        .or(Some(0))
+        .zip(download.or(Some(0)))
+        .map(|(u, d)| u + d);
+    let expires_at = expire.and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
 
-    Some((upload + download, total))
+    (used, total, expires_at)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_subscription_info_full() {
+        let (used, total, expire) = parse_subscription_info(
+            "upload=1073741824; download=2147483648; total=10737418240; expire=1893456000",
+        );
+        assert_eq!(used, Some(3221225472));
+        assert_eq!(total, Some(10737418240));
+        assert!(expire.is_some());
+    }
+
+    #[test]
+    fn parse_subscription_info_missing_fields_defaults_to_zero_used() {
+        let (used, total, expire) = parse_subscription_info("total=1000");
+        assert_eq!(used, Some(0));
+        assert_eq!(total, Some(1000));
+        assert_eq!(expire, None);
+    }
+
+    #[test]
+    fn parse_subscription_info_invalid_returns_none() {
+        let (used, total, expire) = parse_subscription_info("not-a-valid-header");
+        assert_eq!(used, Some(0));
+        assert_eq!(total, None);
+        assert_eq!(expire, None);
+    }
+
+    #[test]
+    fn fetch_options_default() {
+        let opts = FetchOptions::default();
+        assert!(opts.auto_hwid_retry);
+        assert_eq!(opts.max_hwid_retries, 1);
+    }
+
+    #[test]
+    fn placeholder_node_detected_by_uuid() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "P".into(),
+            server: "example.com".into(),
+            port: 443,
+            uuid: Some("00000000-0000-0000-0000-000000000000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(is_placeholder_node(&node));
+    }
+
+    #[test]
+    fn placeholder_node_detected_by_address_and_port() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "P".into(),
+            server: "0.0.0.0".into(),
+            port: 1,
+            uuid: None,
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(is_placeholder_node(&node));
+    }
+
+    #[test]
+    fn real_node_is_not_placeholder() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "R".into(),
+            server: "example.org".into(),
+            port: 443,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(!is_placeholder_node(&node));
+    }
+
+    struct DefaultPlaceholder;
+
+    impl DefaultPlaceholder {
+        fn placeholder() -> ProxyNode {
+            ProxyNode {
+                protocol: Protocol::Vless,
+                name: String::new(),
+                server: String::new(),
+                port: 0,
+                uuid: None,
+                password: None,
+                alter_id: None,
+                encryption: None,
+                transport: Transport::Tcp,
+                security: Security::None,
+                flow: None,
+                sni: None,
+                fingerprint: None,
+                public_key: None,
+                short_id: None,
+                spider_x: None,
+                path: None,
+                host: None,
+                service_name: None,
+                alpn: None,
+                tags: Vec::new(),
+                raw_uri: String::new(),
+            }
+        }
+    }
+
+    #[test]
+    fn default_policy_matches_old_behavior_zero_uuid() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "example.com".into(),
+            port: 443,
+            uuid: Some("00000000-0000-0000-0000-000000000000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(is_placeholder_node(&node));
+    }
+
+    #[test]
+    fn default_policy_matches_old_behavior_zero_address_and_port() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "0.0.0.0".into(),
+            port: 1,
+            uuid: None,
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(is_placeholder_node(&node));
+    }
+
+    #[test]
+    fn default_policy_allows_real_node() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "R".into(),
+            server: "example.org".into(),
+            port: 443,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(!PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(!is_placeholder_node(&node));
+    }
+
+    #[test]
+    fn strict_policy_catches_localhost_and_low_ports() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "P".into(),
+            server: "127.0.0.1".into(),
+            port: 1,
+            uuid: None,
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::strict().is_placeholder(&node));
+    }
+
+    #[test]
+    fn strict_policy_catches_sentinel_domain() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "P".into(),
+            server: "test.com".into(),
+            port: 443,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::strict().is_placeholder(&node));
+    }
+
+    #[test]
+    fn scoring_avoids_false_positives_for_localhost_with_real_uuid() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "L".into(),
+            server: "127.0.0.1".into(),
+            port: 8080,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(!PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(PlaceholderPolicy::strict().is_placeholder(&node));
+    }
+
+    #[test]
+    fn zero_uuid_is_always_placeholder() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "real-provider.example.org".into(),
+            port: 443,
+            uuid: Some("00000000-0000-0000-0000-000000000000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(PlaceholderPolicy::strict().is_placeholder(&node));
+    }
+
+    #[test]
+    fn zero_address_is_always_placeholder() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "0.0.0.0".into(),
+            port: 443,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::default().is_placeholder(&node));
+        assert!(PlaceholderPolicy::strict().is_placeholder(&node));
+    }
+
+    #[test]
+    fn custom_policy_additions_work() {
+        let mut policy = PlaceholderPolicy::default();
+        let custom_uuid = uuid::Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+        policy.add_dummy_uuid(custom_uuid);
+        policy.add_dummy_address("placeholder.invalid");
+
+        let node_with_uuid = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "C".into(),
+            server: "example.org".into(),
+            port: 443,
+            uuid: Some("11111111-1111-1111-1111-111111111111".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        let node_with_addr = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "C".into(),
+            server: "placeholder.invalid".into(),
+            port: 443,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+
+        assert!(policy.is_placeholder(&node_with_uuid));
+        assert!(policy.is_placeholder(&node_with_addr));
+        assert!(!PlaceholderPolicy::default().is_placeholder(&node_with_uuid));
+        assert!(!PlaceholderPolicy::default().is_placeholder(&node_with_addr));
+    }
+
+    #[test]
+    fn port_zero_or_one_are_always_placeholders() {
+        let node_port_zero = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "example.org".into(),
+            port: 0,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        let node_port_one = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "Z".into(),
+            server: "example.org".into(),
+            port: 1,
+            uuid: Some("550e8400-e29b-41d4-a716-446655440000".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(PlaceholderPolicy::default().is_placeholder(&node_port_zero));
+        assert!(PlaceholderPolicy::default().is_placeholder(&node_port_one));
+    }
+
+    #[test]
+    fn single_criterion_is_not_placeholder_by_default() {
+        let node = ProxyNode {
+            protocol: Protocol::Vless,
+            name: "B".into(),
+            server: "example.com".into(),
+            port: 443,
+            uuid: Some("00000000-0000-0000-0000-000000000001".into()),
+            ..DefaultPlaceholder::placeholder()
+        };
+        assert!(!PlaceholderPolicy::default().is_placeholder(&node));
+    }
 }
