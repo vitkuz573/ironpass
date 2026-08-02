@@ -37,6 +37,7 @@ directories = { workspace = true }
 tempfile = "3"
 
 [dev-dependencies]
+axum = { workspace = true }
 tower = { workspace = true }
 reqwest = { workspace = true }
 serde_json = { workspace = true }

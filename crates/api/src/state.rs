@@ -108,12 +108,11 @@ impl AppState {
     pub async fn delete_subscription(&self, id: Uuid) -> anyhow::Result<bool> {
         // Clear selected node if it belongs to this subscription.
         let mut selected = self.selected_node.write().await;
-        if let Some(node_id) = *selected {
-            if let Ok(Some((_, sub_id, _))) = self.db.get_node(node_id) {
-                if sub_id == id {
-                    *selected = None;
-                }
-            }
+        if let Some(node_id) = *selected
+            && let Ok(Some((_, sub_id, _))) = self.db.get_node(node_id)
+            && sub_id == id
+        {
+            *selected = None;
         }
         drop(selected);
         Ok(self.db.delete_subscription(id)?)
@@ -244,14 +243,14 @@ impl AppState {
                 let n = self
                     .get_node(id)
                     .await?
-                    .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
+                    .ok_or_else(|| crate::error::ApiError::NotFound(format!("Node {id} not found")))?;
                 self.select_node(id).await?;
                 n
             }
-            None => self
-                .selected_node()
-                .await?
-                .ok_or_else(|| anyhow::anyhow!("No node selected"))?,
+            None => match self.selected_node().await? {
+                Some(n) => n,
+                None => return Err(crate::error::ApiError::BadRequest("No node selected".into()).into()),
+            },
         };
 
         // Default to sing-box for any advanced node; otherwise still prefer sing-box.

@@ -37,11 +37,16 @@ impl IntoResponse for ApiError {
             ApiError::Conflict(msg) => (StatusCode::CONFLICT, msg),
             ApiError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
             ApiError::Anyhow(e) => {
+                let msg = e.to_string();
                 tracing::error!("Internal error: {:#}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Internal server error".into(),
-                )
+                if msg.contains("No node selected") {
+                    (StatusCode::BAD_REQUEST, msg)
+                } else {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Internal server error".into(),
+                    )
+                }
             }
             ApiError::Core(e) => {
                 tracing::error!("Core error: {}", e);

@@ -50,10 +50,10 @@ impl SingBoxProcessManager {
 
     /// Locate the sing-box binary. Uses configured path, then PATH.
     pub async fn locate_binary(&self) -> anyhow::Result<PathBuf> {
-        if let Some(ref path) = self.sing_box_path {
-            if path.exists() {
-                return Ok(path.clone());
-            }
+        if let Some(ref path) = self.sing_box_path
+            && path.exists()
+        {
+            return Ok(path.clone());
         }
 
         if let Ok(path) = which::global("sing-box") {
@@ -91,12 +91,9 @@ impl SingBoxProcessManager {
 
         // Briefly wait to catch immediate startup failures.
         sleep(Duration::from_millis(300)).await;
-        match child.try_wait()? {
-            Some(status) => {
-                let code = status.code().unwrap_or(-1);
-                anyhow::bail!("sing-box exited immediately with code {}", code);
-            }
-            None => {}
+        if let Some(status) = child.try_wait()? {
+            let code = status.code().unwrap_or(-1);
+            anyhow::bail!("sing-box exited immediately with code {}", code);
         }
 
         let pid = child.id().unwrap_or(0);

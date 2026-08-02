@@ -28,15 +28,15 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(subscriptions::list).post(subscriptions::add),
         )
         .route(
-            "/api/v1/subscriptions/:id",
+            "/api/v1/subscriptions/{id}",
             get(subscriptions::get).delete(subscriptions::delete),
         )
         .route(
-            "/api/v1/subscriptions/:id/fetch",
+            "/api/v1/subscriptions/{id}/fetch",
             put(subscriptions::fetch),
         )
         .route("/api/v1/nodes", get(nodes::list))
-        .route("/api/v1/nodes/:id/select", put(nodes::select))
+        .route("/api/v1/nodes/{id}/select", put(nodes::select))
         .route("/api/v1/proxy/status", get(proxy::status))
         .route("/api/v1/proxy/start", post(proxy::start))
         .route("/api/v1/proxy/stop", post(proxy::stop))

@@ -283,37 +283,37 @@ fn build_transport(node: &ProxyNode, outbound: &mut Map<String, Value>) -> anyho
     }
 
     // Merge XHTTP extra settings if present.
-    if node.transport == Transport::Xhttp || node.transport == Transport::Splithttp {
-        if let Some(ref extra) = node.extra {
-            if let Some(ref mode) = extra.mode {
-                t.insert("mode".into(), mode.clone().into());
-            }
-            if let Some(max) = extra.max_connections {
-                t.insert("max_connections".into(), (max as u64).into());
-            }
-            if let Some(max) = extra.max_concurrent_uploads {
-                t.insert("max_concurrent_uploads".into(), (max as u64).into());
-            }
-            if let Some(no_grpc_header) = extra.no_grpc_header {
-                t.insert("no_grpc_header".into(), no_grpc_header.into());
-            }
-            if let Some(ref padding) = extra.x_padding_bytes {
-                t.insert("padding_bytes".into(), padding.clone().into());
-            }
-            if !extra.headers.is_empty() {
-                let headers: Map<String, Value> = extra
-                    .headers
-                    .iter()
-                    .map(|(k, v)| (k.clone(), Value::String(v.clone())))
-                    .collect();
-                if let Some(existing) = t
-                    .entry("headers")
-                    .or_insert_with(|| Value::Object(Map::new()))
-                    .as_object_mut()
-                {
-                    for (k, v) in headers {
-                        existing.insert(k, v);
-                    }
+    if (node.transport == Transport::Xhttp || node.transport == Transport::Splithttp)
+        && let Some(ref extra) = node.extra
+    {
+        if let Some(ref mode) = extra.mode {
+            t.insert("mode".into(), mode.clone().into());
+        }
+        if let Some(max) = extra.max_connections {
+            t.insert("max_connections".into(), max.into());
+        }
+        if let Some(max) = extra.max_concurrent_uploads {
+            t.insert("max_concurrent_uploads".into(), max.into());
+        }
+        if let Some(no_grpc_header) = extra.no_grpc_header {
+            t.insert("no_grpc_header".into(), no_grpc_header.into());
+        }
+        if let Some(ref padding) = extra.x_padding_bytes {
+            t.insert("padding_bytes".into(), padding.clone().into());
+        }
+        if !extra.headers.is_empty() {
+            let headers: Map<String, Value> = extra
+                .headers
+                .iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect();
+            if let Some(existing) = t
+                .entry("headers")
+                .or_insert_with(|| Value::Object(Map::new()))
+                .as_object_mut()
+            {
+                for (k, v) in headers {
+                    existing.insert(k, v);
                 }
             }
         }
