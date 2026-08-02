@@ -1,15 +1,16 @@
+use crate::api_client::ApiClient;
 use crate::args::{OutputFormatArg, SubAction};
 use crate::output;
 use color_eyre::eyre;
-use ironpass_config::ConfigManager;
-use ironpass_core::traits::NodeExporter;
 use ironpass_core::models::OutputFormat;
-use ironpass_subscription::{NodeExporterImpl, SubscriptionService, is_placeholder_node};
+use ironpass_core::traits::NodeExporter;
+use ironpass_subscription::NodeExporterImpl;
 use tracing::info;
+use uuid::Uuid;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn fetch(
-    manager: &ConfigManager,
+    api_url: &str,
     url: Option<String>,
     format: Option<OutputFormatArg>,
     output_file: Option<String>,
@@ -18,16 +19,24 @@ pub async fn fetch(
     sort: Option<String>,
     _json_output: bool,
 ) -> eyre::Result<()> {
-    let config = manager.load_config()?;
-    let fetch_url = resolve_url(url, &config)?;
+    let client = ApiClient::with_url(api_url.into());
 
-    // Only send an explicit HWID on the first request. When no HWID is supplied,
-    // the subscription fetcher will retry automatically if the server returns
-    // placeholder nodes.
-    let hwid = hwid_override;
+    // Resolve URL to a subscription. If a URL is provided, fetch it directly via parser.
+    let fetch_url = match url {
+        Some(u) if u.starts_with("http://") || u.starts_with("https://") => u,
+        Some(_) | None => {
+            let subs = client.list_subscriptions().await?;
+            let first = subs
+                .into_iter()
+                .next()
+                .ok_or_else(|| eyre::eyre!("No subscription URL provided and none saved."))?;
+            first.url
+        }
+    };
 
-    let service = SubscriptionService::new();
-    let sub = service.fetch_and_parse(&fetch_url, hwid.as_deref()).await?;
+    // Use the existing subscription service for direct URL fetches.
+    let service = ironpass_subscription::SubscriptionService::new();
+    let sub = service.fetch_and_parse(&fetch_url, hwid_override.as_deref()).await?;
 
     let url = sub.url.clone();
     let fetched_at = sub.fetched_at;
@@ -38,7 +47,7 @@ pub async fn fetch(
 
     if !include_placeholders {
         let before = nodes.len();
-        nodes.retain(|n| !is_placeholder_node(n));
+        nodes.retain(|n| !ironpass_subscription::is_placeholder_node(n));
         let removed = before - nodes.len();
         if removed > 0 {
             info!("Filtered out {} placeholder nodes", removed);
@@ -92,11 +101,12 @@ pub async fn fetch(
     Ok(())
 }
 
-pub async fn handle(manager: &ConfigManager, action: SubAction, json: bool) -> eyre::Result<()> {
+pub async fn handle(api_url: &str, action: SubAction, json: bool) -> eyre::Result<()> {
+    let client = ApiClient::with_url(api_url.into());
 
     match action {
         SubAction::Add { url, name, hwid } => {
-            let sub = manager.add_subscription(&url, name.clone(), hwid)?;
+            let sub = client.add_subscription(url, name, hwid).await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&sub)?);
             } else {
@@ -108,46 +118,56 @@ pub async fn handle(manager: &ConfigManager, action: SubAction, json: bool) -> e
             Ok(())
         }
         SubAction::Remove { target } => {
-            manager.remove_subscription(&target)?;
+            let id = resolve_subscription_id(&client, &target).await?;
+            client.delete_subscription(id).await?;
             println!("Removed: {}", target);
             Ok(())
         }
         SubAction::List { detailed } => {
-            let subs = manager.list_subscriptions()?;
+            let subs = client.list_subscriptions().await?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&subs)?);
             } else if subs.is_empty() {
                 println!("No subscriptions saved.");
             } else {
-                output::print_subscriptions(&subs, detailed);
+                output::print_subscriptions_api(&subs, detailed);
             }
             Ok(())
         }
         SubAction::Update { target, hwid } => {
-            let subs = manager.list_subscriptions()?;
-            let to_update: Vec<_> = match &target {
-                Some(t) => subs.into_iter().filter(|s| s.url == *t || s.name.as_deref() == Some(t.as_str())).collect(),
-                None => subs.into_iter().filter(|s| s.is_active).collect(),
+            let ids = match target {
+                Some(t) => vec![resolve_subscription_id(&client, &t).await?],
+                None => client
+                    .list_subscriptions()
+                    .await?
+                    .into_iter()
+                    .filter(|s| s.is_active)
+                    .map(|s| s.id)
+                    .collect(),
             };
 
-            if to_update.is_empty() {
+            if ids.is_empty() {
                 println!("No matching subscriptions found.");
                 return Ok(());
             }
 
-            let service = SubscriptionService::new();
-            for sub in &to_update {
-                let hwid_val = hwid.clone().or_else(|| sub.hwid.clone());
-                match service.fetch_and_parse(&sub.url, hwid_val.as_deref()).await {
-                    Ok(fetched) => {
-                        let real = fetched.nodes.iter()
-                            .filter(|n| !is_placeholder_node(n))
+            for id in ids {
+                match client.fetch_subscription(id, hwid.clone()).await {
+                    Ok(detail) => {
+                        let real = detail
+                            .nodes
+                            .iter()
+                            .filter(|n| !ironpass_subscription::is_placeholder_node(&n.node))
                             .count();
-                        println!("Updated {}: {} nodes ({} real)", sub.url, fetched.nodes.len(), real);
-                        manager.update_subscription_timestamp(&sub.url)?;
+                        println!(
+                            "Updated {}: {} nodes ({} real)",
+                            detail.subscription.url,
+                            detail.nodes.len(),
+                            real
+                        );
                     }
                     Err(e) => {
-                        eprintln!("Failed to update {}: {}", sub.url, e);
+                        eprintln!("Failed to update {}: {}", id, e);
                     }
                 }
             }
@@ -156,14 +176,18 @@ pub async fn handle(manager: &ConfigManager, action: SubAction, json: bool) -> e
     }
 }
 
-fn resolve_url(url: Option<String>, config: &ironpass_config::AppConfig) -> eyre::Result<String> {
-    if let Some(u) = url {
-        return Ok(u);
+async fn resolve_subscription_id(
+    client: &ApiClient,
+    target: &str,
+) -> eyre::Result<Uuid> {
+    if let Ok(id) = Uuid::parse_str(target) {
+        return Ok(id);
     }
-    if let Some(ref default) = config.subscription.default_url {
-        return Ok(default.clone());
-    }
-    Err(eyre::eyre!("No subscription URL provided. Pass a URL or set default_url in config."))
+    let subs = client.list_subscriptions().await?;
+    subs.into_iter()
+        .find(|s| s.url == target || s.name.as_deref() == Some(target))
+        .map(|s| s.id)
+        .ok_or_else(|| eyre::eyre!("Subscription not found: {}", target))
 }
 
 fn arg_to_output_format(arg: &OutputFormatArg) -> OutputFormat {

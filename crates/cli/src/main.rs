@@ -1,3 +1,4 @@
+mod api_client;
 mod args;
 mod commands;
 mod output;

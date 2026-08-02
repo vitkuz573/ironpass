@@ -1,5 +1,5 @@
+use ironpass_api::models::StoredSubscription;
 use ironpass_core::models::{ProxyNode, Subscription};
-use ironpass_config::StoredSubscription;
 use console::style;
 use std::io::{self, Write};
 
@@ -112,7 +112,7 @@ pub fn print_nodes_json(nodes: &[ProxyNode]) -> io::Result<()> {
     Ok(())
 }
 
-pub fn print_subscriptions(subs: &[StoredSubscription], detailed: bool) {
+pub fn print_subscriptions_api(subs: &[StoredSubscription], detailed: bool) {
     println!("{}", style("Saved Subscriptions").bold());
     println!("{}", style("─".repeat(70)).dim());
 

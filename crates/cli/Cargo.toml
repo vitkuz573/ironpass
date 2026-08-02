@@ -15,7 +15,9 @@ ironpass-hwid = { workspace = true }
 ironpass-config = { workspace = true }
 ironpass-transport = { workspace = true }
 ironpass-engine = { workspace = true }
+ironpass-api = { workspace = true }
 clap = { workspace = true }
+serde = { workspace = true }
 clap_complete = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

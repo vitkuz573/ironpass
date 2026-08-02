@@ -4,14 +4,20 @@ use clap_complete::Shell;
 #[derive(Parser)]
 #[command(
     name = "ironpass",
-    about = "Enterprise VPN subscription manager",
+    about = "Enterprise VPN client",
     version,
-    long_about = "IronPass — CLI tool for managing VPN subscriptions with HWID binding, format conversion, and node analysis."
+    long_about = "IronPass — thin CLI for the ironpassd REST API."
 )]
 #[command(propagate_version = true)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+
+    #[arg(long, global = true, help = "ironpassd API URL")]
+    pub api_url: Option<String>,
+
+    #[arg(long, global = true, help = "Start daemon automatically if not running")]
+    pub auto_start: bool,
 
     #[arg(long, global = true)]
     pub config: Option<String>,
@@ -28,9 +34,15 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
+    #[command(about = "Control the ironpassd daemon")]
+    Daemon {
+        #[command(subcommand)]
+        action: DaemonAction,
+    },
+
     #[command(about = "Fetch and display subscription nodes")]
     Fetch {
-        #[arg(help = "Subscription URL (or use default from config)")]
+        #[arg(help = "Subscription URL")]
         url: Option<String>,
 
         #[arg(long, short = 'o', help = "Output format")]
@@ -78,8 +90,8 @@ pub enum Commands {
 
     #[command(about = "Analyze subscription (health, protocols, geolocation)")]
     Analyze {
-        #[arg(help = "Subscription URL")]
-        url: Option<String>,
+        #[arg(help = "Subscription URL or ID")]
+        target: Option<String>,
 
         #[arg(long, help = "Run connectivity probes")]
         probe: bool,
@@ -90,11 +102,11 @@ pub enum Commands {
 
     #[command(about = "Export subscription for specific client")]
     Export {
-        #[arg(help = "Subscription URL")]
-        url: Option<String>,
+        #[arg(help = "Subscription URL or ID")]
+        target: Option<String>,
 
         #[arg(long, short = 't', help = "Target client")]
-        target: ExportTarget,
+        target_client: ExportTarget,
 
         #[arg(long, short = 'O', help = "Output file")]
         output: Option<String>,
@@ -124,23 +136,27 @@ pub enum Commands {
         timeout: Option<u64>,
     },
 
-    #[command(about = "Start proxy (SOCKS5/HTTP) through VPN tunnel")]
+    #[command(about = "Start proxy through VPN tunnel")]
     Proxy {
-        #[arg(help = "Subscription URL (or use default)")]
-        url: Option<String>,
+        #[arg(help = "Node ID (or selected node if omitted)")]
+        node: Option<String>,
 
-        #[arg(long, help = "Node index (0-based)")]
-        node: Option<usize>,
-
-        #[arg(long, default_value = "1080", help = "Local SOCKS5 port")]
+        #[arg(long, default_value = "11080", help = "Local mixed/SOCKS port")]
         socks_port: u16,
 
-        #[arg(long, default_value = "8080", help = "Local HTTP port")]
+        #[arg(long, default_value = "11080", help = "Local HTTP port")]
         http_port: u16,
 
-        #[arg(long, help = "Override HWID")]
-        hwid: Option<String>,
+        #[arg(long, help = "Use mixed inbound on this port")]
+        mixed_port: Option<u16>,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DaemonAction {
+    Start,
+    Stop,
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -159,7 +175,7 @@ pub enum SubAction {
 
     #[command(about = "Remove a subscription")]
     Remove {
-        #[arg(help = "Subscription URL or name")]
+        #[arg(help = "Subscription URL, name or ID")]
         target: String,
     },
 
@@ -171,7 +187,7 @@ pub enum SubAction {
 
     #[command(about = "Update (re-fetch) a subscription")]
     Update {
-        #[arg(help = "Subscription URL or name (all if omitted)")]
+        #[arg(help = "Subscription URL, name or ID (all if omitted)")]
         target: Option<String>,
 
         #[arg(long, help = "Override HWID")]

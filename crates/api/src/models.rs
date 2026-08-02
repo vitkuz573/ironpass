@@ -5,6 +5,14 @@ use ironpass_core::models::{HwidInfo, ProxyNode, SubscriptionMetadata};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Request body for adding a subscription.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AddSubscriptionRequest {
+    pub url: String,
+    pub name: Option<String>,
+    pub hwid: Option<String>,
+}
+
 /// Stored subscription record with cached nodes and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StoredSubscription {
@@ -33,16 +41,8 @@ pub struct NodeWithSubscription {
     pub node: ProxyNode,
 }
 
-/// Request body for adding a subscription.
-#[derive(Debug, Clone, Deserialize)]
-pub struct AddSubscriptionRequest {
-    pub url: String,
-    pub name: Option<String>,
-    pub hwid: Option<String>,
-}
-
 /// Request body for starting the proxy.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StartProxyRequest {
     pub node_id: Option<Uuid>,
     pub socks_port: Option<u16>,
@@ -51,7 +51,7 @@ pub struct StartProxyRequest {
 }
 
 /// Response body for proxy status.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyStatus {
     pub running: bool,
     pub selected_node: Option<NodeWithSubscription>,
@@ -64,10 +64,10 @@ pub struct ProxyStatus {
 }
 
 /// Aggregate health/status response.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthResponse {
-    pub status: &'static str,
-    pub version: &'static str,
+    pub status: String,
+    pub version: String,
     pub uptime_secs: u64,
     pub hwid: String,
 }
@@ -79,7 +79,7 @@ pub struct ConfigResponse {
 }
 
 /// HWID response.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HwidResponse {
     pub hwid: String,
     pub info: HwidInfo,

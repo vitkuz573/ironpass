@@ -1,37 +1,37 @@
+use crate::api_client::ApiClient;
 use crate::args::ConfigAction;
 use color_eyre::eyre;
-use ironpass_config::ConfigManager;
+use ironpass_config::AppConfig;
 
-pub async fn handle(manager: &ConfigManager, action: ConfigAction) -> eyre::Result<()> {
+pub async fn handle(api_url: &str, action: ConfigAction) -> eyre::Result<()> {
+    let client = ApiClient::with_url(api_url.into());
 
     match action {
         ConfigAction::Show => {
-            let config = manager.load_config()?;
+            let config = client.get_config().await?;
             println!("{}", toml::to_string_pretty(&config)?);
         }
         ConfigAction::Reset => {
-            let config = ironpass_config::AppConfig::default();
-            manager.save_config(&config)?;
-            println!("Config reset to defaults at: {}", manager.config_path().display());
+            let config = AppConfig::default();
+            client.put_config(&config).await?;
+            println!("Config reset to defaults");
         }
         ConfigAction::Set { key, value } => {
-            let mut config = manager.load_config()?;
+            let mut config = client.get_config().await?;
             set_config_value(&mut config, &key, &value)?;
-            manager.save_config(&config)?;
+            client.put_config(&config).await?;
             println!("Set {} = {}", key, value);
         }
         ConfigAction::Paths => {
-            println!("Config dir:   {}", manager.config_dir_display());
-            println!("Data dir:     {}", manager.data_dir_display());
-            println!("Config file:  {}", manager.config_path().display());
-            println!("Subs file:    {}", manager.subscriptions_path().display());
+            println!("API URL:  {}", api_url);
+            println!("Daemon:   ironpassd");
         }
     }
 
     Ok(())
 }
 
-fn set_config_value(config: &mut ironpass_config::AppConfig, key: &str, value: &str) -> eyre::Result<()> {
+fn set_config_value(config: &mut AppConfig, key: &str, value: &str) -> eyre::Result<()> {
     match key {
         "general.user_agent" => config.general.user_agent = value.to_string(),
         "general.timeout_secs" => config.general.timeout_secs = value.parse()?,

@@ -46,8 +46,8 @@ pub fn router(state: Arc<AppState>) -> Router {
 async fn health(State(state): State<Arc<AppState>>) -> Result<Json<HealthResponse>, ApiError> {
     let hwid = state.hwid_provider.generate()?;
     Ok(Json(HealthResponse {
-        status: "ok",
-        version: env!("CARGO_PKG_VERSION"),
+        status: "ok".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
         uptime_secs: state.start_time.elapsed().as_secs(),
         hwid,
     }))

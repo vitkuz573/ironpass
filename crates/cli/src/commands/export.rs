@@ -1,35 +1,48 @@
+use crate::api_client::ApiClient;
 use crate::args::ExportTarget;
 use color_eyre::eyre;
-use ironpass_config::ConfigManager;
 use ironpass_core::models::OutputFormat;
-use ironpass_core::traits::{HwidProvider, NodeExporter};
+use ironpass_core::traits::NodeExporter;
 use ironpass_subscription::{NodeExporterImpl, SubscriptionService, is_placeholder_node};
 
 pub async fn handle(
-    manager: &ConfigManager,
-    url: Option<String>,
-    target: ExportTarget,
+    api_url: &str,
+    target: Option<String>,
+    target_client: ExportTarget,
     output_file: Option<String>,
     hwid_override: Option<String>,
 ) -> eyre::Result<()> {
-    let config = manager.load_config()?;
-    let fetch_url = url.or_else(|| config.subscription.default_url.clone())
-        .ok_or_else(|| eyre::eyre!("No URL provided"))?;
+    let client = ApiClient::with_url(api_url.into());
 
-    let hwid = hwid_override.or_else(|| {
-        if config.hwid.enabled {
-            ironpass_hwid::SystemHwidProvider::new().generate().ok()
-        } else {
-            None
+    let nodes: Vec<ironpass_core::models::ProxyNode> = match target {
+        Some(t) if t.starts_with("http://") || t.starts_with("https://") => {
+            let service = SubscriptionService::new();
+            let sub = service.fetch_and_parse(&t, hwid_override.as_deref()).await?;
+            sub.nodes
+                .into_iter()
+                .filter(|n| !is_placeholder_node(n))
+                .collect()
         }
-    });
-
-    let service = SubscriptionService::new();
-    let sub = service.fetch_and_parse(&fetch_url, hwid.as_deref()).await?;
-
-    let nodes: Vec<_> = sub.nodes.into_iter()
-        .filter(|n| !is_placeholder_node(n))
-        .collect();
+        target => {
+            let id = match target {
+                Some(t) => resolve_subscription_id(&client, &t).await?,
+                None => {
+                    let subs = client.list_subscriptions().await?;
+                    subs.into_iter()
+                        .find(|s| s.is_active)
+                        .map(|s| s.id)
+                        .ok_or_else(|| eyre::eyre!("No subscriptions saved."))?
+                }
+            };
+            let detail = client.get_subscription(id).await?;
+            detail
+                .nodes
+                .into_iter()
+                .filter(|n| !is_placeholder_node(&n.node))
+                .map(|n| n.node)
+                .collect()
+        }
+    };
 
     if nodes.is_empty() {
         return Err(eyre::eyre!("No real nodes found in subscription"));
@@ -37,7 +50,7 @@ pub async fn handle(
 
     let exporter = NodeExporterImpl::new();
 
-    let (fmt, extra_info) = match target {
+    let (fmt, extra_info) = match target_client {
         ExportTarget::Clash => (OutputFormat::Clash, Some("Clash Meta / mihomo")),
         ExportTarget::ClashMeta => (OutputFormat::Clash, Some("Clash Meta / mihomo")),
         ExportTarget::SingBox => (OutputFormat::SingBox, Some("sing-box")),
@@ -66,4 +79,18 @@ pub async fn handle(
     }
 
     Ok(())
+}
+
+async fn resolve_subscription_id(
+    client: &ApiClient,
+    target: &str,
+) -> eyre::Result<uuid::Uuid> {
+    if let Ok(id) = uuid::Uuid::parse_str(target) {
+        return Ok(id);
+    }
+    let subs = client.list_subscriptions().await?;
+    subs.into_iter()
+        .find(|s| s.url == target || s.name.as_deref() == Some(target))
+        .map(|s| s.id)
+        .ok_or_else(|| eyre::eyre!("Subscription not found: {}", target))
 }

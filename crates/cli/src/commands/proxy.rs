@@ -1,96 +1,81 @@
+use crate::api_client::ApiClient;
+use crate::args::OutputFormatArg;
 use color_eyre::eyre;
-use ironpass_config::ConfigManager;
-use ironpass_core::traits::HwidProvider;
-use ironpass_subscription::SubscriptionService;
-use ironpass_subscription::is_placeholder_node;
-use ironpass_engine::{ProxyConfig, ProxyEngine};
+use ironpass_api::models::StartProxyRequest;
+use uuid::Uuid;
 
 pub async fn handle(
-    manager: &ConfigManager,
-    url: Option<String>,
-    node_index: Option<usize>,
+    api_url: &str,
+    node: Option<String>,
     socks_port: u16,
     http_port: u16,
-    hwid_override: Option<String>,
+    mixed_port: Option<u16>,
 ) -> eyre::Result<()> {
-    // Install ring crypto provider for rustls
-    ironpass_engine::install_crypto_provider();
+    let client = ApiClient::with_url(api_url.into());
 
-    let config = manager.load_config()?;
-    let fetch_url = url.or_else(|| config.subscription.default_url.clone())
-        .ok_or_else(|| eyre::eyre!("No URL provided"))?;
-
-    println!("Fetching subscription...");
-
-    let hwid = hwid_override.or_else(|| {
-        if config.hwid.enabled {
-            ironpass_hwid::SystemHwidProvider::new().generate().ok()
-        } else {
-            None
-        }
-    });
-
-    let service = SubscriptionService::new();
-    let sub = service.fetch_and_parse(&fetch_url, hwid.as_deref()).await?;
-
-    let real_nodes: Vec<_> = sub.nodes.into_iter()
-        .filter(|n| !is_placeholder_node(n))
-        .collect();
-
-    if real_nodes.is_empty() {
-        return Err(eyre::eyre!("No real nodes available"));
-    }
-
-    let idx = node_index.unwrap_or(0);
-    if idx >= real_nodes.len() {
-        return Err(eyre::eyre!(
-            "Node index {} out of range (0..{})",
-            idx, real_nodes.len()
-        ));
-    }
-
-    let selected = &real_nodes[idx];
-
-    println!("Subscription parsed successfully: {} real node(s)", real_nodes.len());
-    println!();
-    println!("Selected node (#{}):", idx);
-    println!("  Name:      {}", selected.name);
-    println!("  Endpoint:  {}:{}", selected.server, selected.port);
-    println!("  Protocol:  {:?}", selected.protocol);
-    println!("  Transport: {:?}", selected.transport);
-    println!("  Security:  {:?}", selected.security);
-    if let Some(ref sni) = selected.sni {
-        println!("  SNI:       {}", sni);
-    }
-    if let Some(ref host) = selected.host {
-        println!("  Host:      {}", host);
-    }
-    if let Some(ref path) = selected.path {
-        println!("  Path:      {}", path);
-    }
-    if let Some(ref flow) = selected.flow {
-        println!("  Flow:      {}", flow);
-    }
-    println!();
-    println!("Starting proxy engine...");
-    println!("  SOCKS5:  127.0.0.1:{}", socks_port);
-    println!("  HTTP:    127.0.0.1:{}", http_port);
-    println!();
-    println!("Usage:");
-    println!("  curl -x socks5h://127.0.0.1:{} https://httpbin.org/ip", socks_port);
-    println!("  curl -x http://127.0.0.1:{} https://httpbin.org/ip", http_port);
-    println!();
-    println!("Press Ctrl+C to stop.");
-
-    let proxy_config = ProxyConfig {
-        node: selected.clone(),
-        local_socks_port: socks_port,
-        local_http_port: http_port,
-        dns_port: 5353,
+    let node_id = match node {
+        Some(n) => Some(resolve_node_or_subscription(&client, &n).await?),
+        None => None,
     };
 
-    let engine = ProxyEngine::new(proxy_config);
-    engine.start().await?;
+    let req = StartProxyRequest {
+        node_id,
+        socks_port: Some(socks_port),
+        http_port: Some(http_port),
+        mixed_port,
+    };
+
+    let status = client.start_proxy(&req).await?;
+
+    println!("Proxy started");
+    if let Some(node) = &status.selected_node {
+        println!("  Node:      {}", node.node.name);
+        println!("  Endpoint:  {}:{}", node.node.server, node.node.port);
+        println!("  Protocol:  {:?}", node.node.protocol);
+        println!("  Transport: {:?}", node.node.transport);
+    }
+    if let Some(port) = status.socks_port {
+        println!("  SOCKS5:    127.0.0.1:{}", port);
+    }
+    if let Some(port) = status.http_port {
+        println!("  HTTP:      127.0.0.1:{}", port);
+    }
+    if let Some(port) = status.mixed_port {
+        println!("  Mixed:     127.0.0.1:{}", port);
+    }
 
     Ok(())
+}
+
+async fn resolve_node_or_subscription(
+    client: &ApiClient,
+    target: &str,
+) -> eyre::Result<Uuid> {
+    if let Ok(id) = Uuid::parse_str(target) {
+        return Ok(id);
+    }
+
+    // Try matching subscription by URL/name, then pick first node.
+    let subs = client.list_subscriptions().await?;
+    if let Some(sub) = subs
+        .into_iter()
+        .find(|s| s.url == target || s.name.as_deref() == Some(target))
+    {
+        let nodes = client.list_nodes(Some(sub.id)).await?;
+        return nodes
+            .into_iter()
+            .next()
+            .map(|n| n.id)
+            .ok_or_else(|| eyre::eyre!("Subscription has no nodes"));
+    }
+
+    Err(eyre::eyre!(
+        "Node or subscription not found: {}. Provide a node UUID.",
+        target
+    ))
+}
+
+#[allow(dead_code)]
+fn arg_to_output_format(_arg: &OutputFormatArg) -> ironpass_core::models::OutputFormat {
+    ironpass_core::models::OutputFormat::Raw
 }

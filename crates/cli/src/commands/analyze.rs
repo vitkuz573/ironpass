@@ -1,36 +1,59 @@
+use crate::api_client::ApiClient;
 use color_eyre::eyre;
-use ironpass_config::ConfigManager;
-use ironpass_core::traits::HwidProvider;
-use ironpass_subscription::SubscriptionService;
 use ironpass_subscription::is_placeholder_node;
 
 pub async fn handle(
-    manager: &ConfigManager,
-    url: Option<String>,
+    api_url: &str,
+    target: Option<String>,
     _probe: bool,
     detailed: bool,
     json: bool,
 ) -> eyre::Result<()> {
-    let config = manager.load_config()?;
-    let fetch_url = url.or_else(|| config.subscription.default_url.clone())
-        .ok_or_else(|| eyre::eyre!("No URL provided"))?;
+    let client = ApiClient::with_url(api_url.into());
 
-    let hwid = if config.hwid.enabled {
-        ironpass_hwid::SystemHwidProvider::new().generate().ok()
-    } else {
-        None
+    let id = match target {
+        Some(t) if t.starts_with("http://") || t.starts_with("https://") => {
+            // Direct URL fetch.
+            let service = ironpass_subscription::SubscriptionService::new();
+            let sub = service.fetch_and_parse(&t, None).await?;
+            print_analysis(&sub.url, &sub.nodes, sub.traffic_used, sub.traffic_total, sub.fetched_at, detailed, json)?;
+            return Ok(());
+        }
+        Some(t) => resolve_subscription_id(&client, &t).await?,
+        None => {
+            let subs = client.list_subscriptions().await?;
+            subs.into_iter()
+                .find(|s| s.is_active)
+                .map(|s| s.id)
+                .ok_or_else(|| eyre::eyre!("No subscriptions saved."))?
+        }
     };
 
-    let service = SubscriptionService::new();
-    let sub = service.fetch_and_parse(&fetch_url, hwid.as_deref()).await?;
+    let detail = client.get_subscription(id).await?;
+    print_analysis(
+        &detail.subscription.url,
+        &detail.nodes.iter().map(|n| n.node.clone()).collect::<Vec<_>>(),
+        detail.subscription.traffic_used,
+        detail.subscription.traffic_total,
+        detail.subscription.last_updated.unwrap_or(detail.subscription.added_at),
+        detailed,
+        json,
+    )?;
 
-    let nodes = &sub.nodes;
-    let real: Vec<_> = nodes.iter()
-        .filter(|n| !is_placeholder_node(n))
-        .collect();
-    let placeholders: Vec<_> = nodes.iter()
-        .filter(|n| is_placeholder_node(n))
-        .collect();
+    Ok(())
+}
+
+fn print_analysis(
+    url: &str,
+    nodes: &[ironpass_core::models::ProxyNode],
+    traffic_used: Option<u64>,
+    traffic_total: Option<u64>,
+    fetched_at: chrono::DateTime<chrono::Utc>,
+    _detailed: bool,
+    json: bool,
+) -> eyre::Result<()> {
+    let real: Vec<_> = nodes.iter().filter(|n| !is_placeholder_node(n)).collect();
+    let placeholders: Vec<_> = nodes.iter().filter(|n| is_placeholder_node(n)).collect();
 
     let mut protocols = std::collections::HashMap::new();
     let mut transports = std::collections::HashMap::new();
@@ -43,77 +66,48 @@ pub async fn handle(
     }
 
     if json {
-        println!("{}", serde_json::json!({
-            "total_nodes": nodes.len(),
-            "real_nodes": real.len(),
-            "placeholder_nodes": placeholders.len(),
-            "protocols": protocols,
-            "transports": transports,
-            "securities": securities,
-            "traffic_used": sub.traffic_used,
-            "traffic_total": sub.traffic_total,
-            "fetched_at": sub.fetched_at,
-        }));
+        println!(
+            "{}",
+            serde_json::json!({
+                "total_nodes": nodes.len(),
+                "real_nodes": real.len(),
+                "placeholder_nodes": placeholders.len(),
+                "protocols": protocols,
+                "transports": transports,
+                "securities": securities,
+                "traffic_used": traffic_used,
+                "traffic_total": traffic_total,
+                "fetched_at": fetched_at,
+            })
+        );
     } else {
         println!("=== Subscription Analysis ===");
-        println!("URL:         {}", sub.url);
-        println!("Fetched at:  {}", sub.fetched_at.format("%Y-%m-%d %H:%M:%S UTC"));
-        println!();
-        println!("Nodes:       {} total ({} real, {} placeholder)", nodes.len(), real.len(), placeholders.len());
-
-        if let Some(used) = sub.traffic_used {
-            println!("Traffic:     {} used", bytesize::ByteSize(used).display());
+        println!("URL:         {}", url);
+        println!("Fetched at:  {}", fetched_at.format("%Y-%m-%d %H:%M:%S UTC"));
+        if let Some(used) = traffic_used {
+            println!("Traffic used: {} bytes", used);
         }
-        if let Some(total) = sub.traffic_total {
-            println!("  Total:     {}", bytesize::ByteSize(total).display());
+        if let Some(total) = traffic_total {
+            println!("Traffic total: {} bytes", total);
         }
-
-        if !protocols.is_empty() {
-            println!();
-            println!("Protocols:");
-            for (proto, count) in &protocols {
-                println!("  {:<15} {}", proto, count);
-            }
-        }
-
-        if !transports.is_empty() {
-            println!();
-            println!("Transports:");
-            for (tr, count) in &transports {
-                println!("  {:<15} {}", tr, count);
-            }
-        }
-
-        if !securities.is_empty() {
-            println!();
-            println!("Security:");
-            for (sec, count) in &securities {
-                println!("  {:<15} {}", sec, count);
-            }
-        }
-
-        if detailed && !real.is_empty() {
-            println!();
-            println!("=== Real Nodes ===");
-            for node in &real {
-                println!();
-                println!("  Name:       {}", node.name);
-                println!("  Server:     {}:{}", node.server, node.port);
-                println!("  Protocol:   {:?}", node.protocol);
-                println!("  Transport:  {:?}", node.transport);
-                println!("  Security:   {:?}", node.security);
-                if let Some(ref sni) = node.sni {
-                    println!("  SNI:        {}", sni);
-                }
-                if let Some(ref fp) = node.fingerprint {
-                    println!("  FP:         {}", fp);
-                }
-                if let Some(ref flow) = node.flow {
-                    println!("  Flow:       {}", flow);
-                }
-            }
-        }
+        println!("Total nodes: {}", nodes.len());
+        println!("Real nodes: {}", real.len());
+        println!("Placeholder nodes: {}", placeholders.len());
+        println!("Protocols: {:?}", protocols);
+        println!("Transports: {:?}", transports);
+        println!("Securities: {:?}", securities);
     }
 
     Ok(())
+}
+
+async fn resolve_subscription_id(client: &ApiClient, target: &str) -> eyre::Result<uuid::Uuid> {
+    if let Ok(id) = uuid::Uuid::parse_str(target) {
+        return Ok(id);
+    }
+    let subs = client.list_subscriptions().await?;
+    subs.into_iter()
+        .find(|s| s.url == target || s.name.as_deref() == Some(target))
+        .map(|s| s.id)
+        .ok_or_else(|| eyre::eyre!("Subscription not found: {}", target))
 }
