@@ -39,7 +39,6 @@ export default function NodesPage() {
   const [selectedFilter, setSelectedFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [selectingId, setSelectingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -82,7 +81,7 @@ export default function NodesPage() {
     setSelectingId(id);
     try {
       await IronpassApi.selectNode(id);
-      setSelectedId(id);
+      await fetchData();
       toast.success("Node selected");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to select node");
@@ -174,24 +173,26 @@ export default function NodesPage() {
                         : "—"}
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        variant={selectedId === node.id ? "secondary" : "outline"}
-                        onClick={() => handleSelectNode(node.id)}
-                        disabled={selectingId === node.id}
-                      >
-                        {selectingId === node.id ? (
-                          "..."
-                        ) : selectedId === node.id ? (
-                          <>
-                            <Check className="mr-1 size-4" /> Selected
-                          </>
-                        ) : (
-                          <>
-                            <Play className="mr-1 size-4" /> Select
-                          </>
-                        )}
-                      </Button>
+                      {node.selected ? (
+                        <span className="inline-flex items-center text-sm font-medium text-green-600">
+                          <Check className="mr-1 size-4" /> Selected
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleSelectNode(node.id)}
+                          disabled={selectingId === node.id}
+                        >
+                          {selectingId === node.id ? (
+                            "..."
+                          ) : (
+                            <>
+                              <Play className="mr-1 size-4" /> Select
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

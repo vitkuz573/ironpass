@@ -64,6 +64,7 @@ export interface NodeWithSubscription {
   id: string;
   subscription_id: string;
   subscription_name?: string | null;
+  selected: boolean;
   node: ProxyNode;
 }
 

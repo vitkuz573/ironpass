@@ -79,6 +79,8 @@ pub struct NodeWithSubscription {
     pub id: Uuid,
     pub subscription_id: Uuid,
     pub subscription_name: Option<String>,
+    #[serde(default)]
+    pub selected: bool,
     pub node: ProxyNode,
 }
 

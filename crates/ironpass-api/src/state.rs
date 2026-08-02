@@ -39,6 +39,7 @@ impl AppState {
         hwid_provider: Arc<dyn HwidProvider + Send + Sync>,
         xray_path: Option<PathBuf>,
     ) -> Self {
+        let selected_node = db.get_selected_node_id().unwrap_or(None);
         Self {
             http_client: Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -49,7 +50,7 @@ impl AppState {
             db,
             hwid_provider,
             process_manager: Arc::new(RwLock::new(CoreProcessManager::new())),
-            selected_node: Arc::new(RwLock::new(None)),
+            selected_node: Arc::new(RwLock::new(selected_node)),
             proxy_ports: Arc::new(RwLock::new(None)),
             split_tunnel_rules: Arc::new(RwLock::new(Vec::new())),
             start_time: Instant::now(),
@@ -134,11 +135,14 @@ impl AppState {
     pub async fn delete_subscription(&self, id: Uuid) -> anyhow::Result<bool> {
         // Clear selected node if it belongs to this subscription.
         let mut selected = self.selected_node.write().await;
-        if let Some(node_id) = *selected
-            && let Ok(Some((_, sub_id, _))) = self.db.get_node(node_id)
-            && sub_id == id
-        {
+        let should_clear = if let Some(node_id) = *selected {
+            matches!(self.db.get_node(node_id), Ok(Some((_, sub_id, _))) if sub_id == id)
+        } else {
+            false
+        };
+        if should_clear {
             *selected = None;
+            self.db.set_selected_node_id(None)?;
         }
         drop(selected);
         Ok(self.db.delete_subscription(id)?)
@@ -188,6 +192,7 @@ impl AppState {
         let sub_names: std::collections::HashMap<Uuid, Option<String>> =
             subs.into_iter().map(|s| (s.id, s.name)).collect();
 
+        let selected = *self.selected_node.read().await;
         let rows = self.db.list_nodes(subscription_id)?;
         let mut nodes = Vec::with_capacity(rows.len());
         for (id, sub_id, node) in rows {
@@ -195,6 +200,7 @@ impl AppState {
                 id,
                 subscription_id: sub_id,
                 subscription_name: sub_names.get(&sub_id).cloned().unwrap_or(None),
+                selected: selected == Some(id),
                 node,
             });
         }
@@ -203,6 +209,7 @@ impl AppState {
 
     pub async fn get_node(&self, id: Uuid) -> anyhow::Result<Option<NodeWithSubscription>> {
         let row = self.db.get_node(id)?;
+        let selected = *self.selected_node.read().await;
         Ok(row.map(|(id, sub_id, node)| {
             let name = self
                 .db
@@ -214,6 +221,7 @@ impl AppState {
                 id,
                 subscription_id: sub_id,
                 subscription_name: name,
+                selected: selected == Some(id),
                 node,
             }
         }))
@@ -226,6 +234,8 @@ impl AppState {
             .ok_or_else(|| anyhow::anyhow!("Node not found"))?;
         let mut selected = self.selected_node.write().await;
         *selected = Some(id);
+        drop(selected);
+        self.db.set_selected_node_id(Some(id))?;
         Ok(node)
     }
 
@@ -344,12 +354,24 @@ impl AppState {
             None => match self.selected_node().await? {
                 Some(n) => n,
                 None => {
+                    self.db.set_selected_node_id(None).ok();
                     return Err(
                         crate::error::ApiError::BadRequest("No node selected".into()).into(),
                     );
                 }
             },
         };
+
+        // Ensure the selected node still exists in the database.
+        if self.db.get_node(node.id)?.is_none() {
+            let mut selected = self.selected_node.write().await;
+            *selected = None;
+            drop(selected);
+            self.db.set_selected_node_id(None)?;
+            return Err(
+                crate::error::ApiError::NotFound(format!("Node {} not found", node.id)).into(),
+            );
+        }
 
         let ports = ProxyPorts {
             socks: req.socks_port,

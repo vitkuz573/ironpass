@@ -82,6 +82,11 @@ impl DbPool {
             );
 
             CREATE INDEX IF NOT EXISTS idx_split_tunnel_node_id ON split_tunnel_rules(node_id);
+
+            CREATE TABLE IF NOT EXISTS proxy_state (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            );
             "#,
         )?;
         conn.execute("PRAGMA foreign_keys = ON", [])?;
@@ -396,6 +401,31 @@ impl DbPool {
             [id.to_string()],
         )?;
         Ok(rows > 0)
+    }
+
+    pub fn get_selected_node_id(&self) -> Result<Option<Uuid>, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM proxy_state WHERE key = 'selected_node_id'")?;
+        let value: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
+        drop(stmt);
+        drop(conn);
+        Ok(value.and_then(|s| Uuid::parse_str(&s).ok()))
+    }
+
+    pub fn set_selected_node_id(&self, id: Option<Uuid>) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        match id {
+            Some(id) => conn.execute(
+                "INSERT INTO proxy_state (key, value) VALUES ('selected_node_id', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [id.to_string()],
+            )?,
+            None => conn.execute(
+                "DELETE FROM proxy_state WHERE key = 'selected_node_id'",
+                [],
+            )?,
+        };
+        Ok(())
     }
 }
 
