@@ -50,6 +50,15 @@ impl SubscriptionService {
         }
     }
 
+    /// Create a service from an existing HTTP client.
+    pub fn with_fetcher(fetcher: HttpSubscriptionFetcher) -> Self {
+        Self {
+            fetcher,
+            parser: SubscriptionParser::new(),
+            exporter: NodeExporterImpl::new(),
+        }
+    }
+
     /// Fetch a subscription from `url` and parse it into a structured object.
     ///
     /// `hwid` is an optional Hardware ID sent to the provider. If `None` and the
