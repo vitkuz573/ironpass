@@ -92,6 +92,7 @@ mod tests {
             host: None,
             service_name: None,
             alpn: None,
+            extra: None,
             tags: vec![],
             raw_uri: String::new(),
         };

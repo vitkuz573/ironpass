@@ -830,6 +830,7 @@ mod tests {
                 host: None,
                 service_name: None,
                 alpn: None,
+                extra: None,
                 tags: Vec::new(),
                 raw_uri: String::new(),
             }

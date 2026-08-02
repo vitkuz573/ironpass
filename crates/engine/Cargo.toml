@@ -8,6 +8,12 @@ edition.workspace = true
 ironpass-core = { workspace = true }
 tokio = { workspace = true }
 bytes = "1"
+http-body = "1"
+http-body-util = { version = "0.1", features = ["channel"] }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+tokio-stream = "0.1"
+url = { workspace = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 x25519-dalek = { workspace = true }
@@ -41,6 +47,5 @@ webpki-roots = "1.0"
 tokio-rustls = "0.26"
 hex = "0.4"
 http = "1"
-http-body-util = "0.1"
 futures-core = "0.3"
 futures-util = "0.3"

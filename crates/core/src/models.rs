@@ -71,8 +71,56 @@ pub struct ProxyNode {
     pub host: Option<String>,
     pub service_name: Option<String>,
     pub alpn: Option<Vec<String>>,
+    /// Parsed XHTTP extra configuration (the `extra` query parameter in VLESS URIs).
+    #[serde(default)]
+    pub extra: Option<XhttpExtra>,
     pub tags: Vec<String>,
     pub raw_uri: String,
+}
+
+/// XHTTP transport extra settings carried in the `extra` query parameter.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct XhttpExtra {
+    /// XHTTP operating mode, e.g. `stream-up` or `packet-up`.
+    pub mode: Option<String>,
+    /// HTTP/2 ` SETTINGS_MAX_CONCURRENT_STREAMS` hint (used for HTTP/2 mode).
+    pub max_concurrent_uploads: Option<u64>,
+    /// Maximum number of upstream sessions kept open (HTTP/2 mode).
+    pub max_connections: Option<u64>,
+    /// `stream-up` submode: `"raw"` or `"packet-up"`.
+    pub no_grpc_header: Option<bool>,
+    /// Optional padding range for the HTTP request body, e.g. `"100-1000"`.
+    pub x_padding_bytes: Option<String>,
+    /// Optional request headers merged into the HTTP upgrade request.
+    #[serde(default)]
+    pub headers: HashMap<String, String>,
+}
+
+impl XhttpExtra {
+    /// Return true if the extra settings request an HTTP/2 based XHTTP mode.
+    pub fn prefers_h2(&self) -> bool {
+        matches!(
+            self.mode.as_deref(),
+            Some("stream-up") | Some("packet-up")
+        )
+    }
+
+    /// Parse the raw `extra` query string value into structured settings.
+    pub fn parse(raw: &str) -> serde_json::Result<Self> {
+        serde_json::from_str(raw)
+    }
+
+    /// Return the number of initial padding bytes to generate, if configured.
+    pub fn padding_len(&self) -> Option<usize> {
+        let s = self.x_padding_bytes.as_deref()?;
+        // Accept exact values or "min-max" ranges (pick max).
+        if let Some((_, max)) = s.split_once('-') {
+            max.trim().parse().ok()
+        } else {
+            s.parse().ok()
+        }
+    }
 }
 
 impl ProxyNode {

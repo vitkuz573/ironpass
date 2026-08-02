@@ -44,6 +44,7 @@ mod tests {
             host: Some("cdn.example.com".into()),
             service_name: None,
             alpn: Some(vec!["h2".into(), "http/1.1".into()]),
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         }
@@ -71,6 +72,7 @@ mod tests {
             host: Some("cdn.example.com".into()),
             service_name: None,
             alpn: None,
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         }
@@ -98,6 +100,7 @@ mod tests {
             host: None,
             service_name: None,
             alpn: None,
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         }
@@ -125,6 +128,7 @@ mod tests {
             host: Some("cdn.example.com".into()),
             service_name: None,
             alpn: None,
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         }

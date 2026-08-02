@@ -172,6 +172,7 @@ impl SubscriptionParser {
             host: get_param("host"),
             service_name: get_param("serviceName"),
             alpn: get_param("alpn").map(|a| a.split(',').map(String::from).collect()),
+            extra: None,
             tags: Vec::new(),
             raw_uri: uri.to_string(),
         })
@@ -215,6 +216,7 @@ impl SubscriptionParser {
             alpn: json["alpn"]
                 .as_str()
                 .map(|a| a.split(',').map(String::from).collect()),
+            extra: None,
             tags: Vec::new(),
             raw_uri: uri.to_string(),
         })
@@ -270,6 +272,7 @@ impl SubscriptionParser {
             host: get_param("host"),
             service_name: get_param("serviceName"),
             alpn: get_param("alpn").map(|a| a.split(',').map(String::from).collect()),
+            extra: None,
             tags: Vec::new(),
             raw_uri: uri.to_string(),
         })
@@ -336,6 +339,7 @@ impl SubscriptionParser {
             host: None,
             service_name: None,
             alpn: None,
+            extra: None,
             tags: Vec::new(),
             raw_uri: uri.to_string(),
         })
@@ -428,6 +432,7 @@ impl SubscriptionParser {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             }),
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         })
@@ -522,6 +527,7 @@ impl SubscriptionParser {
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             }),
+            extra: None,
             tags: Vec::new(),
             raw_uri: String::new(),
         })

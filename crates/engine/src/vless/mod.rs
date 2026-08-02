@@ -23,6 +23,9 @@ pub enum VlessStream {
     Tls(tokio_rustls::client::TlsStream<tokio::net::TcpStream>),
     Grpc(transport::GrpcTransport),
     Ws(transport::WsTransport),
+    Xhttp(transport::XhttpTransport),
+    Xhttp2(transport::Xhttp2Transport),
+    SplitHttp(transport::SplitHttpTransport),
 }
 
 impl AsyncRead for VlessStream {
@@ -35,6 +38,9 @@ impl AsyncRead for VlessStream {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_read(cx, buf),
             VlessStream::Ws(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            VlessStream::Xhttp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            VlessStream::Xhttp2(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            VlessStream::SplitHttp(s) => std::pin::Pin::new(s).poll_read(cx, buf),
         }
     }
 }
@@ -49,6 +55,9 @@ impl AsyncWrite for VlessStream {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_write(cx, buf),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_write(cx, buf),
             VlessStream::Ws(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            VlessStream::Xhttp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            VlessStream::Xhttp2(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            VlessStream::SplitHttp(s) => std::pin::Pin::new(s).poll_write(cx, buf),
         }
     }
 
@@ -60,6 +69,9 @@ impl AsyncWrite for VlessStream {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_flush(cx),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_flush(cx),
             VlessStream::Ws(s) => std::pin::Pin::new(s).poll_flush(cx),
+            VlessStream::Xhttp(s) => std::pin::Pin::new(s).poll_flush(cx),
+            VlessStream::Xhttp2(s) => std::pin::Pin::new(s).poll_flush(cx),
+            VlessStream::SplitHttp(s) => std::pin::Pin::new(s).poll_flush(cx),
         }
     }
 
@@ -71,6 +83,9 @@ impl AsyncWrite for VlessStream {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_shutdown(cx),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_shutdown(cx),
             VlessStream::Ws(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            VlessStream::Xhttp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            VlessStream::Xhttp2(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            VlessStream::SplitHttp(s) => std::pin::Pin::new(s).poll_shutdown(cx),
         }
     }
 }
@@ -115,6 +130,24 @@ impl VlessClient {
                 let ws_stream = transport::connect_ws(tcp, &sni, &path, &host).await?;
                 Ok(VlessStream::Ws(ws_stream))
             }
+            Transport::Xhttp => {
+                let tls = self.connect_underlying_tls(tcp).await?;
+                match transport::XhttpMode::from_extra(self.node.extra.as_ref()) {
+                    transport::XhttpMode::H2 => {
+                        let stream = self.connect_xhttp2(tls).await?;
+                        Ok(VlessStream::Xhttp2(stream))
+                    }
+                    transport::XhttpMode::Auto => {
+                        let stream = self.connect_xhttp(tls).await?;
+                        Ok(VlessStream::Xhttp(stream))
+                    }
+                }
+            }
+            Transport::Splithttp => {
+                let tls = self.connect_underlying_tls(tcp).await?;
+                let stream = self.connect_splithttp(tls).await?;
+                Ok(VlessStream::SplitHttp(stream))
+            }
             _ => {
                 match self.node.security {
                     ironpass_core::models::Security::Reality => {
@@ -142,6 +175,60 @@ impl VlessClient {
         reality::connect_reality(tcp, &self.node).await
     }
 
+    /// Establish the TLS/Reality layer that XHTTP/SplitHTTP run on top of.
+    async fn connect_underlying_tls(&self, tcp: tokio::net::TcpStream) -> Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
+        match self.node.security {
+            ironpass_core::models::Security::Reality => reality::connect_reality(tcp, &self.node).await,
+            ironpass_core::models::Security::Tls => tls::connect_tls(tcp, &self.node).await,
+            _ => Err(Error::UnsupportedProtocol(
+                "XHTTP/SplitHTTP requires TLS or Reality security".into(),
+            )),
+        }
+    }
+
+    async fn connect_xhttp(&self, tls: tokio_rustls::client::TlsStream<tokio::net::TcpStream>) -> Result<transport::XhttpTransport> {
+        let sni = self.node.sni.as_deref()
+            .unwrap_or(&self.node.server)
+            .to_string();
+        let host = self.node.host.as_deref()
+            .unwrap_or(&sni)
+            .to_string();
+        let path = self.node.path.as_deref()
+            .unwrap_or("/")
+            .to_string();
+        let headers = extra_headers(&self.node);
+        let padding_len = self.node.extra.as_ref().and_then(|e| e.padding_len());
+        transport::connect_xhttp(tls, &sni, &host, &path, &headers, padding_len).await
+    }
+
+    async fn connect_xhttp2(&self, tls: tokio_rustls::client::TlsStream<tokio::net::TcpStream>) -> Result<transport::Xhttp2Transport> {
+        let sni = self.node.sni.as_deref()
+            .unwrap_or(&self.node.server)
+            .to_string();
+        let host = self.node.host.as_deref()
+            .unwrap_or(&sni)
+            .to_string();
+        let path = self.node.path.as_deref()
+            .unwrap_or("/")
+            .to_string();
+        let headers = extra_headers(&self.node);
+        transport::connect_xhttp2(tls, &sni, &host, &path, &headers).await
+    }
+
+    async fn connect_splithttp(&self, tls: tokio_rustls::client::TlsStream<tokio::net::TcpStream>) -> Result<transport::SplitHttpTransport> {
+        let sni = self.node.sni.as_deref()
+            .unwrap_or(&self.node.server)
+            .to_string();
+        let host = self.node.host.as_deref()
+            .unwrap_or(&sni)
+            .to_string();
+        let path = self.node.path.as_deref()
+            .unwrap_or("/")
+            .to_string();
+        let headers = extra_headers(&self.node);
+        transport::connect_splithttp(tls, &sni, &host, &path, &headers).await
+    }
+
     pub fn encode_connect_request(&self, target_host: &str, target_port: u16) -> BytesMut {
         header::encode_vless_request(
             &self.uuid,
@@ -166,6 +253,15 @@ fn parse_uuid(uuid_str: &str) -> Result<Vec<u8>> {
     }
 
     Ok(bytes)
+}
+
+/// Build optional HTTP headers from the node configuration.
+fn extra_headers(node: &ProxyNode) -> Vec<(String, String)> {
+    let mut headers = Vec::new();
+    if let Some(ref fp) = node.fingerprint {
+        headers.push(("Sec-CH-UA".to_string(), fp.clone()));
+    }
+    headers
 }
 
 pub fn generate_random_bytes(len: usize) -> Vec<u8> {

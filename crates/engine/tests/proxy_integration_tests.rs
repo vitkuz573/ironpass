@@ -26,6 +26,7 @@ fn fake_vless_node() -> ProxyNode {
         host: None,
         service_name: None,
         alpn: None,
+        extra: None,
         tags: vec![],
         raw_uri: String::new(),
     }
