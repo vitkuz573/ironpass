@@ -6,14 +6,18 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use crate::transport;
+use crate::vless::tls;
 
 const CMD_TCP: u8 = 0x01;
 const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x03;
 const ATYP_IPV6: u8 = 0x04;
 
+#[allow(clippy::large_enum_variant)]
 pub enum TrojanStream {
     Grpc(transport::GrpcTransport),
+    Tls(tokio_rustls::client::TlsStream<TcpStream>),
+    Ws(transport::WsTransport),
 }
 
 impl AsyncRead for TrojanStream {
@@ -24,6 +28,8 @@ impl AsyncRead for TrojanStream {
     ) -> Poll<std::io::Result<()>> {
         match &mut *self {
             TrojanStream::Grpc(s) => Pin::new(s).poll_read(cx, buf),
+            TrojanStream::Tls(s) => Pin::new(s).poll_read(cx, buf),
+            TrojanStream::Ws(s) => Pin::new(s).poll_read(cx, buf),
         }
     }
 }
@@ -36,6 +42,8 @@ impl AsyncWrite for TrojanStream {
     ) -> Poll<std::io::Result<usize>> {
         match &mut *self {
             TrojanStream::Grpc(s) => Pin::new(s).poll_write(cx, buf),
+            TrojanStream::Tls(s) => Pin::new(s).poll_write(cx, buf),
+            TrojanStream::Ws(s) => Pin::new(s).poll_write(cx, buf),
         }
     }
 
@@ -45,6 +53,8 @@ impl AsyncWrite for TrojanStream {
     ) -> Poll<std::io::Result<()>> {
         match &mut *self {
             TrojanStream::Grpc(s) => Pin::new(s).poll_flush(cx),
+            TrojanStream::Tls(s) => Pin::new(s).poll_flush(cx),
+            TrojanStream::Ws(s) => Pin::new(s).poll_flush(cx),
         }
     }
 
@@ -54,6 +64,8 @@ impl AsyncWrite for TrojanStream {
     ) -> Poll<std::io::Result<()>> {
         match &mut *self {
             TrojanStream::Grpc(s) => Pin::new(s).poll_shutdown(cx),
+            TrojanStream::Tls(s) => Pin::new(s).poll_shutdown(cx),
+            TrojanStream::Ws(s) => Pin::new(s).poll_shutdown(cx),
         }
     }
 }
@@ -94,11 +106,20 @@ impl TrojanClient {
                 let grpc_stream = transport::connect_grpc(tcp, &sni, &path).await?;
                 Ok(TrojanStream::Grpc(grpc_stream))
             }
+            Transport::Ws => {
+                let host = self.node.host.as_deref()
+                    .unwrap_or(&sni)
+                    .to_string();
+                let path = self.node.path.as_deref()
+                    .unwrap_or("/")
+                    .to_string();
+                let ws_stream = transport::connect_ws(tcp, &sni, &path, &host).await?;
+                Ok(TrojanStream::Ws(ws_stream))
+            }
             _ => {
-                Err(Error::UnsupportedProtocol(format!(
-                    "Trojan transport {:?} not yet supported",
-                    self.node.transport
-                )))
+                // Plain TCP/TLS Trojan.
+                let tls_stream = tls::connect_tls(tcp, &self.node).await?;
+                Ok(TrojanStream::Tls(tls_stream))
             }
         }
     }

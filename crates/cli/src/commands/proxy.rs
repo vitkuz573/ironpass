@@ -20,6 +20,8 @@ pub async fn handle(
     let fetch_url = url.or_else(|| config.subscription.default_url.clone())
         .ok_or_else(|| eyre::eyre!("No URL provided"))?;
 
+    println!("Fetching subscription...");
+
     let hwid = hwid_override.or_else(|| {
         if config.hwid.enabled {
             ironpass_hwid::SystemHwidProvider::new().generate().ok()
@@ -49,17 +51,33 @@ pub async fn handle(
 
     let selected = &real_nodes[idx];
 
-    println!("Selected node: {} → {}:{}", selected.name, selected.server, selected.port);
-    println!("Protocol:      {:?}", selected.protocol);
-    println!("Transport:     {:?}", selected.transport);
-    println!("Security:      {:?}", selected.security);
+    println!("Subscription parsed successfully: {} real node(s)", real_nodes.len());
+    println!();
+    println!("Selected node (#{}):", idx);
+    println!("  Name:      {}", selected.name);
+    println!("  Endpoint:  {}:{}", selected.server, selected.port);
+    println!("  Protocol:  {:?}", selected.protocol);
+    println!("  Transport: {:?}", selected.transport);
+    println!("  Security:  {:?}", selected.security);
+    if let Some(ref sni) = selected.sni {
+        println!("  SNI:       {}", sni);
+    }
+    if let Some(ref host) = selected.host {
+        println!("  Host:      {}", host);
+    }
+    if let Some(ref path) = selected.path {
+        println!("  Path:      {}", path);
+    }
+    if let Some(ref flow) = selected.flow {
+        println!("  Flow:      {}", flow);
+    }
     println!();
     println!("Starting proxy engine...");
     println!("  SOCKS5:  127.0.0.1:{}", socks_port);
     println!("  HTTP:    127.0.0.1:{}", http_port);
     println!();
     println!("Usage:");
-    println!("  curl -x socks5://127.0.0.1:{} https://httpbin.org/ip", socks_port);
+    println!("  curl -x socks5h://127.0.0.1:{} https://httpbin.org/ip", socks_port);
     println!("  curl -x http://127.0.0.1:{} https://httpbin.org/ip", http_port);
     println!();
     println!("Press Ctrl+C to stop.");

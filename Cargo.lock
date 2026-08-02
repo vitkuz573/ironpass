@@ -1586,6 +1586,7 @@ dependencies = [
  "dashmap",
  "etherparse",
  "futures-core",
+ "futures-util",
  "h2",
  "hex",
  "hmac",

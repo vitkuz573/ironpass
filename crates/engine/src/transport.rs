@@ -4,6 +4,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use tokio_rustls::client::TlsStream;
 
 pub struct GrpcTransport {
     tx: h2::SendStream<Bytes>,
@@ -100,6 +101,105 @@ impl AsyncWrite for GrpcTransport {
     }
 }
 
+pub struct WsTransport {
+    inner: tokio_tungstenite::WebSocketStream<TlsStream<TcpStream>>,
+    read_buf: BytesMut,
+}
+
+impl WsTransport {
+    fn new(inner: tokio_tungstenite::WebSocketStream<TlsStream<TcpStream>>) -> Self {
+        Self {
+            inner,
+            read_buf: BytesMut::new(),
+        }
+    }
+}
+
+impl AsyncRead for WsTransport {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        loop {
+            if !self.read_buf.is_empty() {
+                let n = self.read_buf.len().min(buf.remaining());
+                buf.put_slice(&self.read_buf.split_to(n));
+                return Poll::Ready(Ok(()));
+            }
+
+            use futures_util::Stream;
+
+            match Pin::new(&mut self.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(msg))) => match msg {
+                    tokio_tungstenite::tungstenite::protocol::Message::Binary(data) => {
+                        self.read_buf.extend_from_slice(&data);
+                    }
+                    tokio_tungstenite::tungstenite::protocol::Message::Text(data) => {
+                        self.read_buf.extend_from_slice(data.as_bytes());
+                    }
+                    tokio_tungstenite::tungstenite::protocol::Message::Close(_) => {
+                        return Poll::Ready(Ok(()));
+                    }
+                    _ => {
+                        // Ping/Pong: ignore and continue waiting for data.
+                        continue;
+                    }
+                },
+                Poll::Ready(Some(Err(e))) => {
+                    return Poll::Ready(Err(std::io::Error::other(e)));
+                }
+                Poll::Ready(None) => {
+                    return Poll::Ready(Ok(()));
+                }
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+    }
+}
+
+impl AsyncWrite for WsTransport {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        use futures_util::Sink;
+
+        match Sink::poll_ready(Pin::new(&mut self.inner), cx) {
+            Poll::Ready(Ok(())) => {
+                let msg = tokio_tungstenite::tungstenite::protocol::Message::Binary(Bytes::copy_from_slice(buf));
+                if let Err(e) = Sink::start_send(Pin::new(&mut self.inner), msg) {
+                    return Poll::Ready(Err(std::io::Error::other(e)));
+                }
+                Poll::Ready(Ok(buf.len()))
+            }
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        use futures_util::Sink;
+
+        match Sink::poll_flush(Pin::new(&mut self.inner), cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+        use futures_util::Sink;
+
+        match Sink::poll_close(Pin::new(&mut self.inner), cx) {
+            Poll::Ready(Ok(())) => Poll::Ready(Ok(())),
+            Poll::Ready(Err(e)) => Poll::Ready(Err(std::io::Error::other(e))),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 pub async fn connect_grpc(
     tcp: TcpStream,
     sni: &str,
@@ -152,4 +252,47 @@ pub async fn connect_grpc(
         rx: None,
         response_future: Some(response_future),
     })
+}
+
+pub async fn connect_ws(
+    tcp: TcpStream,
+    sni: &str,
+    path: &str,
+    host: &str,
+) -> Result<WsTransport> {
+    let mut root_store = rustls::RootCertStore::empty();
+    root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let mut config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    // WebSocket runs over HTTP/1.1; do not negotiate h2.
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+
+    let connector = tokio_rustls::TlsConnector::from(std::sync::Arc::new(config));
+    let domain = rustls::pki_types::ServerName::try_from(sni.to_string())
+        .map_err(|e| Error::Parse(format!("Invalid SNI: {}", e)))?;
+
+    let tls = connector.connect(domain, tcp).await
+        .map_err(|e| Error::Custom(format!("WebSocket TLS failed: {}", e)))?;
+
+    tracing::debug!("WebSocket TLS connected to SNI {}", sni);
+
+    let path = path.trim_start_matches('/');
+    let uri = format!("https://{}/{}", host, path);
+
+    let request = http::Request::builder()
+        .method("GET")
+        .uri(&uri)
+        .header("Host", host)
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .body(())
+        .map_err(|e| Error::Custom(format!("WebSocket request build failed: {}", e)))?;
+
+    let (ws_stream, response) = tokio_tungstenite::client_async(request, tls).await
+        .map_err(|e| Error::Custom(format!("WebSocket handshake failed: {}", e)))?;
+
+    tracing::debug!("WebSocket handshake completed with status {}", response.status());
+
+    Ok(WsTransport::new(ws_stream))
 }

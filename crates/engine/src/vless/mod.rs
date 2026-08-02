@@ -22,6 +22,7 @@ pub struct VlessClient {
 pub enum VlessStream {
     Tls(tokio_rustls::client::TlsStream<tokio::net::TcpStream>),
     Grpc(transport::GrpcTransport),
+    Ws(transport::WsTransport),
 }
 
 impl AsyncRead for VlessStream {
@@ -33,6 +34,7 @@ impl AsyncRead for VlessStream {
         match &mut *self {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_read(cx, buf),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_read(cx, buf),
+            VlessStream::Ws(s) => std::pin::Pin::new(s).poll_read(cx, buf),
         }
     }
 }
@@ -46,6 +48,7 @@ impl AsyncWrite for VlessStream {
         match &mut *self {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_write(cx, buf),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_write(cx, buf),
+            VlessStream::Ws(s) => std::pin::Pin::new(s).poll_write(cx, buf),
         }
     }
 
@@ -56,6 +59,7 @@ impl AsyncWrite for VlessStream {
         match &mut *self {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_flush(cx),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_flush(cx),
+            VlessStream::Ws(s) => std::pin::Pin::new(s).poll_flush(cx),
         }
     }
 
@@ -66,6 +70,7 @@ impl AsyncWrite for VlessStream {
         match &mut *self {
             VlessStream::Tls(s) => std::pin::Pin::new(s).poll_shutdown(cx),
             VlessStream::Grpc(s) => std::pin::Pin::new(s).poll_shutdown(cx),
+            VlessStream::Ws(s) => std::pin::Pin::new(s).poll_shutdown(cx),
         }
     }
 }
@@ -96,6 +101,19 @@ impl VlessClient {
                     .to_string();
                 let grpc_stream = transport::connect_grpc(tcp, &sni, &path).await?;
                 Ok(VlessStream::Grpc(grpc_stream))
+            }
+            Transport::Ws => {
+                let sni = self.node.sni.as_deref()
+                    .unwrap_or(&self.node.server)
+                    .to_string();
+                let host = self.node.host.as_deref()
+                    .unwrap_or(&sni)
+                    .to_string();
+                let path = self.node.path.as_deref()
+                    .unwrap_or("/")
+                    .to_string();
+                let ws_stream = transport::connect_ws(tcp, &sni, &path, &host).await?;
+                Ok(VlessStream::Ws(ws_stream))
             }
             _ => {
                 match self.node.security {

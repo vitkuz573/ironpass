@@ -1,7 +1,9 @@
 pub mod vless;
 pub mod trojan;
 pub mod socks5;
+pub mod http_proxy;
 pub mod transport;
+pub mod dispatcher;
 pub mod proxy;
 
 use ironpass_core::{Result, models::ProxyNode};
@@ -32,12 +34,13 @@ impl ProxyEngine {
 
     pub async fn start(&self) -> Result<()> {
         tracing::info!("Starting proxy engine");
-        tracing::info!("Node: {} → {}:{}", self.config.node.name, self.config.node.server, self.config.node.port);
+        tracing::info!("Node: {} -> {}:{}", self.config.node.name, self.config.node.server, self.config.node.port);
         tracing::info!("SOCKS5: 127.0.0.1:{}", self.config.local_socks_port);
         tracing::info!("HTTP:   127.0.0.1:{}", self.config.local_http_port);
 
         let node = self.config.node.clone();
         let socks_port = self.config.local_socks_port;
+        let http_port = self.config.local_http_port;
         let shutdown_rx = self.shutdown.subscribe();
 
         let socks_handle = {
@@ -49,12 +52,23 @@ impl ProxyEngine {
             })
         };
 
+        let http_handle = {
+            let node = node.clone();
+            let shutdown_rx = self.shutdown.subscribe();
+            tokio::spawn(async move {
+                if let Err(e) = http_proxy::run_http_server(node, http_port, shutdown_rx).await {
+                    tracing::error!("HTTP proxy server error: {}", e);
+                }
+            })
+        };
+
         tracing::info!("Proxy engine started");
 
         let mut shutdown_rx = self.shutdown.subscribe();
         let _ = shutdown_rx.recv().await;
 
         socks_handle.abort();
+        http_handle.abort();
         tracing::info!("Proxy engine stopped");
         Ok(())
     }
