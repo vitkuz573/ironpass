@@ -7,6 +7,7 @@ members = [
     "crates/config",
     "crates/transport",
     "crates/engine",
+    "crates/api",
     "crates/cli",
 ]
 
@@ -25,6 +26,9 @@ tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.13", features = ["json", "rustls", "rustls-no-provider"], default-features = false }
 hyper = { version = "1", features = ["full"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
+axum = { version = "0.8", features = ["tokio"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -110,3 +114,4 @@ ironpass-hwid = { path = "crates/hwid" }
 ironpass-config = { path = "crates/config" }
 ironpass-transport = { path = "crates/transport" }
 ironpass-engine = { path = "crates/engine" }
+ironpass-api = { path = "crates/api" }
