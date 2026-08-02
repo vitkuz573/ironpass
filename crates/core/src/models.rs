@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fmt;
 use strum::{Display, EnumString};
 
@@ -81,6 +82,27 @@ impl ProxyNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionMetadata {
+    pub profile_title: Option<String>,
+    pub profile_update_interval_hours: Option<u64>,
+    pub profile_web_page_url: Option<String>,
+    pub announcement: Option<String>,
+    pub headers: HashMap<String, String>,
+}
+
+impl Default for SubscriptionMetadata {
+    fn default() -> Self {
+        Self {
+            profile_title: None,
+            profile_update_interval_hours: None,
+            profile_web_page_url: None,
+            announcement: None,
+            headers: HashMap::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
     pub id: uuid::Uuid,
     pub url: String,
@@ -90,6 +112,7 @@ pub struct Subscription {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     pub traffic_used: Option<u64>,
     pub traffic_total: Option<u64>,
+    pub metadata: SubscriptionMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

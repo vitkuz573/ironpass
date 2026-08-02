@@ -69,6 +69,7 @@ pub async fn fetch(
                 expires_at: None,
                 traffic_used,
                 traffic_total,
+                metadata: ironpass_core::models::SubscriptionMetadata::default(),
             };
             output::print_nodes_table(&nodes, &sub_display)?;
         }

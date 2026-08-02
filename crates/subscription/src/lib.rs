@@ -7,8 +7,8 @@ mod parser;
 
 pub use exporter::NodeExporterImpl;
 pub use fetcher::{
-    FetchOptions, HttpSubscriptionFetcher, PlaceholderPolicy, is_placeholder_node,
-    placeholder_messages,
+    FetchOptions, HttpSubscriptionFetcher, PlaceholderPolicy, extract_inline_metadata,
+    is_placeholder_node, placeholder_messages,
 };
 pub use parser::SubscriptionParser;
 

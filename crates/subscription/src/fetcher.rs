@@ -1,4 +1,6 @@
 use async_trait::async_trait;
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use ironpass_core::{Error, Result, models::*, traits::*};
 use tracing::{info, warn};
 
@@ -160,6 +162,10 @@ impl HttpSubscriptionFetcher {
             placeholder_count
         );
 
+        let header_metadata = extract_header_metadata(&response.headers);
+        let inline_metadata = extract_inline_metadata(&response.body);
+        let metadata = merge_metadata(inline_metadata, header_metadata);
+
         Ok(ParsedResponse {
             url: url.to_string(),
             nodes,
@@ -168,6 +174,7 @@ impl HttpSubscriptionFetcher {
             traffic_used,
             traffic_total,
             expires_at,
+            metadata,
         })
     }
 
@@ -269,6 +276,7 @@ impl HttpSubscriptionFetcher {
             expires_at: parsed.expires_at,
             traffic_used: parsed.traffic_used,
             traffic_total: parsed.traffic_total,
+            metadata: parsed.metadata,
         }
     }
 }
@@ -304,6 +312,7 @@ struct ParsedResponse {
     traffic_used: Option<u64>,
     traffic_total: Option<u64>,
     expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    metadata: SubscriptionMetadata,
 }
 
 fn is_hwid_limit(headers: &reqwest::header::HeaderMap) -> bool {
@@ -569,6 +578,125 @@ fn parse_subscription_info(
     let expires_at = expire.and_then(|ts| chrono::DateTime::from_timestamp(ts, 0));
 
     (used, total, expires_at)
+}
+
+/// Decode a value if it is prefixed with `base64:`, otherwise return it unchanged.
+fn decode_metadata_value(value: &str) -> String {
+    let value = value.trim();
+    if let Some(encoded) = value.strip_prefix("base64:") {
+        STANDARD
+            .decode(encoded.trim())
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+            .unwrap_or_else(|| value.to_string())
+    } else {
+        value.to_string()
+    }
+}
+
+/// Extract interesting subscription metadata from HTTP response headers.
+///
+/// Base64-encoded header values (prefixed with `base64:`) are decoded automatically.
+/// All interesting header names and their raw values are also preserved in
+/// `metadata.headers`.
+fn extract_header_metadata(headers: &reqwest::header::HeaderMap) -> SubscriptionMetadata {
+    let mut metadata = SubscriptionMetadata::default();
+    let interesting = [
+        "profile-title",
+        "profile-update-interval",
+        "profile-web-page-url",
+        "announce",
+    ];
+
+    for name in interesting {
+        if let Some(value) = headers.get(name).and_then(|v| v.to_str().ok()) {
+            let decoded = decode_metadata_value(value);
+            metadata.headers.insert(name.to_string(), decoded.clone());
+            match name {
+                "profile-title" => metadata.profile_title = Some(decoded),
+                "profile-update-interval" => {
+                    metadata.profile_update_interval_hours = decoded.parse().ok();
+                }
+                "profile-web-page-url" => metadata.profile_web_page_url = Some(decoded),
+                "announce" => metadata.announcement = Some(decoded),
+                _ => {}
+            }
+        }
+    }
+
+    metadata
+}
+
+/// Extract subscription metadata written as key=value lines in the response body.
+///
+/// Recognised keys are `profile-title`, `profile-update-interval`,
+/// `profile-web-page-url`, `announce`, and `announces`. Values prefixed with
+/// `base64:` are decoded automatically. The body is base64-decoded first if the
+/// entire payload is a valid Base64 string, which is common for subscription
+/// providers that encode the whole node list.
+pub fn extract_inline_metadata(body: &str) -> SubscriptionMetadata {
+    let decoded_body = if let Ok(bytes) = STANDARD.decode(body.trim()) {
+        String::from_utf8(bytes).unwrap_or_else(|_| body.to_string())
+    } else {
+        body.to_string()
+    };
+
+    let mut metadata = SubscriptionMetadata::default();
+
+    for line in decoded_body.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        let value = decode_metadata_value(value);
+
+        match key {
+            "profile-title" if metadata.profile_title.is_none() => {
+                metadata.profile_title = Some(value);
+            }
+            "profile-update-interval" if metadata.profile_update_interval_hours.is_none() => {
+                metadata.profile_update_interval_hours = value.parse().ok();
+            }
+            "profile-web-page-url" if metadata.profile_web_page_url.is_none() => {
+                metadata.profile_web_page_url = Some(value);
+            }
+            "announce" | "announces" if metadata.announcement.is_none() => {
+                metadata.announcement = Some(value);
+            }
+            _ => {}
+        }
+    }
+
+    metadata
+}
+
+/// Merge body-derived metadata with header-derived metadata.
+///
+/// Header values take precedence over inline body values, matching the order
+/// used by many providers where headers carry authoritative metadata. Values
+/// already decoded in `header_metadata` are kept and any overlapping fields in
+/// `body_metadata` are ignored.
+fn merge_metadata(
+    body_metadata: SubscriptionMetadata,
+    header_metadata: SubscriptionMetadata,
+) -> SubscriptionMetadata {
+    SubscriptionMetadata {
+        profile_title: header_metadata
+            .profile_title
+            .or(body_metadata.profile_title),
+        profile_update_interval_hours: header_metadata
+            .profile_update_interval_hours
+            .or(body_metadata.profile_update_interval_hours),
+        profile_web_page_url: header_metadata
+            .profile_web_page_url
+            .or(body_metadata.profile_web_page_url),
+        announcement: header_metadata.announcement.or(body_metadata.announcement),
+        headers: header_metadata.headers,
+    }
 }
 
 #[cfg(test)]
