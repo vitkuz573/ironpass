@@ -39,15 +39,6 @@ pub enum Security {
     RealityPsk,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Display, EnumString)]
-#[strum(serialize_all = "snake_case")]
-pub enum OutputFormat {
-    Clash,
-    SingBox,
-    V2Ray,
-    Raw,
-}
-
 /// Target type for a split tunnel rule.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -207,7 +198,7 @@ pub struct SubscriptionMetadata {
 /// A fully parsed subscription, including nodes, traffic accounting, expiry and metadata.
 ///
 /// This is the output of [`crate::traits::SubscriptionFetcher::fetch`] and the main
-/// data structure consumed by the CLI for display, export and analysis.
+/// data structure consumed by the CLI for display and analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
     /// Unique identifier assigned locally when the subscription is fetched.

@@ -18,9 +18,6 @@ pub struct AppConfig {
     pub hwid: HwidConfig,
 
     #[serde(default)]
-    pub output: OutputConfig,
-
-    #[serde(default)]
     pub logging: LoggingConfig,
 }
 
@@ -94,32 +91,6 @@ impl Default for HwidConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputConfig {
-    #[serde(default = "default_format")]
-    pub format: String,
-
-    #[serde(default)]
-    pub output_file: Option<PathBuf>,
-
-    #[serde(default = "default_pretty")]
-    pub pretty: bool,
-
-    #[serde(default)]
-    pub sort_by: Option<String>,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            format: default_format(),
-            output_file: None,
-            pretty: default_pretty(),
-            sort_by: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -157,12 +128,6 @@ fn default_update_interval() -> u64 {
     24
 }
 fn default_enabled() -> bool {
-    true
-}
-fn default_format() -> String {
-    "clash".into()
-}
-fn default_pretty() -> bool {
     true
 }
 fn default_log_level() -> String {

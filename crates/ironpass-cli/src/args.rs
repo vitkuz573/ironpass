@@ -42,11 +42,8 @@ pub enum Commands {
         #[arg(help = "Subscription URL")]
         url: Option<String>,
 
-        #[arg(long, short = 'o', help = "Output format")]
-        format: Option<OutputFormatArg>,
-
-        #[arg(long, short = 'O', help = "Write output to file")]
-        output: Option<String>,
+        #[arg(long, short = 'o', help = "Output format (table or json)")]
+        format: Option<FetchFormatArg>,
 
         #[arg(long, help = "Override HWID")]
         hwid: Option<String>,
@@ -70,37 +67,10 @@ pub enum Commands {
         action: HwidAction,
     },
 
-    #[command(about = "Convert between subscription formats")]
-    Convert {
-        #[arg(help = "Input file (stdin if omitted)")]
-        input: Option<String>,
-
-        #[arg(long, short = 't', help = "Output format")]
-        to: OutputFormatArg,
-
-        #[arg(long, short = 'O', help = "Output file")]
-        output: Option<String>,
-    },
-
     #[command(about = "Analyze subscription (protocols, transports, security)")]
     Analyze {
         #[arg(help = "Subscription URL or ID")]
         target: Option<String>,
-    },
-
-    #[command(about = "Export subscription for specific client")]
-    Export {
-        #[arg(help = "Subscription URL or ID")]
-        target: Option<String>,
-
-        #[arg(long, short = 't', help = "Target client")]
-        target_client: ExportTarget,
-
-        #[arg(long, short = 'O', help = "Output file")]
-        output: Option<String>,
-
-        #[arg(long, help = "Override HWID")]
-        hwid: Option<String>,
     },
 
     #[command(about = "Generate shell completions")]
@@ -323,15 +293,7 @@ pub enum ConfigAction {
 }
 
 #[derive(Clone, ValueEnum)]
-pub enum OutputFormatArg {
-    #[value(alias = "clash")]
-    Clash,
-    #[value(alias = "sb", alias = "singbox")]
-    SingBox,
-    #[value(alias = "v2ray")]
-    V2Ray,
-    #[value(alias = "raw")]
-    Raw,
+pub enum FetchFormatArg {
     #[value(alias = "json")]
     Json,
     #[value(alias = "table")]
@@ -350,24 +312,4 @@ pub enum FormatHint {
     Raw,
     #[value(alias = "auto")]
     Auto,
-}
-
-#[derive(Clone, ValueEnum)]
-pub enum ExportTarget {
-    #[value(alias = "clash")]
-    Clash,
-    #[value(alias = "clash-meta", alias = "mihomo")]
-    ClashMeta,
-    #[value(alias = "singbox", alias = "sb")]
-    SingBox,
-    #[value(alias = "v2rayn")]
-    V2RayN,
-    #[value(alias = "v2rayng")]
-    V2RayNG,
-    #[value(alias = "hiddify")]
-    Hiddify,
-    #[value(alias = "nekoray")]
-    NekoRay,
-    #[value(alias = "shadowrocket")]
-    Shadowrocket,
 }

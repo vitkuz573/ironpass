@@ -2,7 +2,7 @@
 
 # Contributing to IronPass
 
-Thank you for considering a contribution to IronPass. This document describes how to set up a development environment, follow our coding conventions, add new parser or exporter formats, run tests, and report issues.
+Thank you for considering a contribution to IronPass. This document describes how to set up a development environment, follow our coding conventions, add new parser formats, run tests, and report issues.
 
 ## Table of Contents
 
@@ -10,7 +10,7 @@ Thank you for considering a contribution to IronPass. This document describes ho
 - [Development Setup](#development-setup)
 - [Commit Message Conventions](#commit-message-conventions)
 - [Test-Driven Development Workflow](#test-driven-development-workflow)
-- [How to Add a Parser or Exporter Format](#how-to-add-a-parser-or-exporter-format)
+- [How to Add a Parser Format](#how-to-add-a-parser-format)
 - [How to Run Tests](#how-to-run-tests)
 - [Reporting Issues](#reporting-issues)
 
@@ -101,7 +101,6 @@ Common scopes:
 - `cli`
 - `subscription`
 - `parser`
-- `exporter`
 - `hwid`
 - `config`
 - `engine`
@@ -133,9 +132,7 @@ We require new features and bug fixes to be accompanied by tests.
 
 Unit tests live in `#[cfg(test)]` modules next to the code they exercise. Integration tests live in `crates/<crate>/tests/` directories. CLI integration tests use `wiremock` to avoid relying on external network services.
 
-## How to Add a Parser or Exporter Format
-
-### Adding a parser
+## How to Add a Parser Format
 
 1. Open `crates/subscription/src/parser.rs`.
 2. Extend `SubscriptionParser::detect_format` to recognise the new format.
@@ -157,23 +154,13 @@ Unit tests live in `#[cfg(test)]` modules next to the code they exercise. Integr
    | `host`            | `host` / `headers.Host` |
 
 6. Add unit tests covering a minimal example and edge cases (missing fields, unsupported variants).
-7. Add a round-trip integration test in `crates/subscription/tests/round_trip_tests.rs` if an exporter also exists for the format.
-
-### Adding an exporter
-
-1. Open `crates/subscription/src/exporter.rs`.
-2. Add the new variant to `ironpass_core::models::OutputFormat` in `crates/core/src/models.rs`.
-3. Add a private method on `NodeExporterImpl` (for example `to_my_format`) that serialises `&[ProxyNode]` into the target representation.
-4. Wire the new method into `NodeExporterImpl::export`.
-5. Add unit tests in `crates/subscription/src/exporter.rs` and a round-trip test in `crates/subscription/tests/round_trip_tests.rs`.
 
 ### Updating the CLI
 
 If the new format should be selectable from the command line:
 
-1. Add a corresponding variant to `OutputFormatArg` or `ExportTarget` in `crates/cli/src/args.rs`.
-2. Map the CLI variant to the core `OutputFormat` in the relevant command handler (`sub.rs`, `convert.rs`, `export.rs`).
-3. Add an integration test in `crates/cli/tests/` if the format is exposed by `fetch` or `export`.
+1. Add a corresponding variant to `FetchFormatArg` in `crates/cli/src/args.rs` if the format only affects display.
+2. Add an integration test in `crates/cli/tests/` if the format is exposed by `fetch`.
 
 ## How to Run Tests
 

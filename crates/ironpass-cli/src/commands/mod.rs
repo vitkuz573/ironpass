@@ -2,9 +2,7 @@ mod analyze;
 mod backend;
 mod completions;
 mod config_cmd;
-mod convert;
 mod daemon;
-mod export;
 mod hwid;
 mod ping;
 mod proxy;
@@ -28,32 +26,13 @@ pub async fn dispatch(cli: Cli) -> eyre::Result<()> {
         Commands::Fetch {
             url: fetch_url,
             format,
-            output,
             hwid,
             include_placeholders,
             sort,
-        } => {
-            sub::fetch(
-                &url,
-                fetch_url,
-                format,
-                output,
-                hwid,
-                include_placeholders,
-                sort,
-            )
-            .await
-        }
+        } => sub::fetch(&url, fetch_url, format, hwid, include_placeholders, sort).await,
         Commands::Sub { action } => sub::handle(&url, action, cli.json).await,
         Commands::Hwid { action } => hwid::handle(&url, action, cli.json).await,
-        Commands::Convert { input, to, output } => convert::handle(input, to, output).await,
         Commands::Analyze { target } => analyze::handle(&url, target, cli.json).await,
-        Commands::Export {
-            target,
-            target_client,
-            output,
-            hwid,
-        } => export::handle(&url, target, target_client, output, hwid).await,
         Commands::Completions { shell } => completions::handle(shell),
         Commands::Config { action } => config_cmd::handle(&url, action).await,
         Commands::Ping { url, timeout } => ping::handle(url, timeout).await,

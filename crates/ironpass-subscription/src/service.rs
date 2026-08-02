@@ -1,8 +1,8 @@
-//! Convenience facade that combines subscription fetching, parsing and exporting.
+//! Convenience facade that combines subscription fetching and parsing.
 
-use ironpass_core::{Result, models::*, traits::*};
+use ironpass_core::{Result, models::*, traits::SubscriptionFetcher};
 
-/// Convenience facade that combines subscription fetching, parsing and exporting.
+/// Convenience facade that combines subscription fetching and parsing.
 ///
 /// [`SubscriptionService::new`] builds a service with sensible defaults: a 30-second
 /// HTTP timeout, limited redirects and automatic HWID retry on placeholder responses.
@@ -10,7 +10,6 @@ use ironpass_core::{Result, models::*, traits::*};
 pub struct SubscriptionService {
     fetcher: crate::fetcher::HttpSubscriptionFetcher,
     parser: crate::parser::SubscriptionParser,
-    exporter: crate::exporter::NodeExporterImpl,
 }
 
 impl SubscriptionService {
@@ -30,7 +29,6 @@ impl SubscriptionService {
                 options,
             ),
             parser: crate::parser::SubscriptionParser::new(),
-            exporter: crate::exporter::NodeExporterImpl::new(),
         }
     }
 
@@ -39,7 +37,6 @@ impl SubscriptionService {
         Self {
             fetcher,
             parser: crate::parser::SubscriptionParser::new(),
-            exporter: crate::exporter::NodeExporterImpl::new(),
         }
     }
 
@@ -63,11 +60,6 @@ impl SubscriptionService {
     /// Detect the format of `input` without fully parsing it.
     pub fn detect_format(&self, input: &str) -> SubscriptionFormat {
         self.parser.detect_format(input)
-    }
-
-    /// Export a slice of nodes to the requested output format.
-    pub fn export(&self, nodes: &[ProxyNode], format: &OutputFormat) -> Result<String> {
-        self.exporter.export(nodes, format)
     }
 }
 

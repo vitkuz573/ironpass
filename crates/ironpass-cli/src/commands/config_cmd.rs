@@ -44,8 +44,6 @@ fn set_config_value(config: &mut AppConfig, key: &str, value: &str) -> eyre::Res
         "hwid.enabled" => config.hwid.enabled = value.parse()?,
         "hwid.custom_id" => config.hwid.custom_id = Some(value.to_string()),
         "hwid.device_model_override" => config.hwid.device_model_override = Some(value.to_string()),
-        "output.format" => config.output.format = value.to_string(),
-        "output.pretty" => config.output.pretty = value.parse()?,
         "logging.level" => config.logging.level = value.to_string(),
         "logging.file" => config.logging.file = value.parse()?,
         _ => return Err(eyre::eyre!("Unknown config key: {}", key)),

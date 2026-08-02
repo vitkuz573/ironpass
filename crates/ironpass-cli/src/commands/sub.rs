@@ -1,18 +1,14 @@
-use crate::args::{OutputFormatArg, SubAction};
+use crate::args::{FetchFormatArg, SubAction};
 use crate::output;
 use color_eyre::eyre;
 use ironpass_api_client::ApiClient;
-use ironpass_core::models::OutputFormat;
-use ironpass_core::traits::NodeExporter;
-use ironpass_subscription::NodeExporterImpl;
 use tracing::info;
 use uuid::Uuid;
 
 pub async fn fetch(
     api_url: &str,
     url: Option<String>,
-    format: Option<OutputFormatArg>,
-    output_file: Option<String>,
+    format: Option<FetchFormatArg>,
     hwid_override: Option<String>,
     include_placeholders: bool,
     sort: Option<String>,
@@ -64,10 +60,10 @@ pub async fn fetch(
         });
     }
 
-    let out_fmt = format.unwrap_or(OutputFormatArg::Table);
+    let out_fmt = format.unwrap_or(FetchFormatArg::Table);
 
     match out_fmt {
-        OutputFormatArg::Table => {
+        FetchFormatArg::Table => {
             let sub_display = ironpass_core::models::Subscription {
                 id: uuid::Uuid::new_v4(),
                 url,
@@ -81,20 +77,8 @@ pub async fn fetch(
             };
             output::print_nodes_table(&nodes, &sub_display)?;
         }
-        OutputFormatArg::Json => {
+        FetchFormatArg::Json => {
             output::print_nodes_json(&nodes)?;
-        }
-        _ => {
-            let exporter = NodeExporterImpl::new();
-            let core_fmt = arg_to_output_format(&out_fmt);
-            let content = exporter.export(&nodes, &core_fmt)?;
-
-            if let Some(path) = output_file {
-                std::fs::write(&path, &content)?;
-                println!("Written to {}", path);
-            } else {
-                println!("{}", content);
-            }
         }
     }
 
@@ -185,15 +169,4 @@ async fn resolve_subscription_id(client: &ApiClient, target: &str) -> eyre::Resu
         .find(|s| s.url == target || s.name.as_deref() == Some(target))
         .map(|s| s.id)
         .ok_or_else(|| eyre::eyre!("Subscription not found: {}", target))
-}
-
-fn arg_to_output_format(arg: &OutputFormatArg) -> OutputFormat {
-    match arg {
-        OutputFormatArg::Clash => OutputFormat::Clash,
-        OutputFormatArg::SingBox => OutputFormat::SingBox,
-        OutputFormatArg::V2Ray => OutputFormat::V2Ray,
-        OutputFormatArg::Raw => OutputFormat::Raw,
-        OutputFormatArg::Json => OutputFormat::Raw,
-        OutputFormatArg::Table => OutputFormat::Raw,
-    }
 }

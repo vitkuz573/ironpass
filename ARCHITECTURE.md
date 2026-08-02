@@ -18,12 +18,12 @@ This document describes the high-level architecture of the IronPass workspace, t
 
 ## System Overview
 
-IronPass is a Rust workspace that exposes a single binary, `ironpass`, for managing VPN subscriptions. At runtime the CLI parses arguments, loads configuration from the XDG directories, optionally fetches subscriptions over HTTP, parses them into a canonical `ProxyNode` representation, filters placeholder nodes, and either displays the result, exports it to a client format, or starts a local proxy.
+IronPass is a Rust workspace that exposes a single binary, `ironpass`, for managing VPN subscriptions. At runtime the CLI parses arguments, loads configuration from the XDG directories, optionally fetches subscriptions over HTTP, parses them into a canonical `ProxyNode` representation, filters placeholder nodes, and either displays the result or starts a local proxy.
 
 The architecture is layered:
 
 - **Core** (`ironpass-core`) defines domain models and traits.
-- **Subscription** (`ironpass-subscription`) implements fetching, parsing, placeholder detection and exporting.
+- **Subscription** (`ironpass-subscription`) implements fetching, parsing and placeholder detection.
 - **HWID** (`ironpass-hwid`) generates and persists a stable device identifier.
 - **Config** (`ironpass-config`) manages TOML configuration.
 - **Backend** (`ironpass-backend`) provides proxy backend abstraction and configuration generators for sing-box and Xray-core.
@@ -38,7 +38,7 @@ ironpass/
 ├── Cargo.toml
 ├── crates/
 │   ├── ironpass-core/           # Domain models and shared traits
-│   ├── ironpass-subscription/   # Fetch, parse, detect placeholders, export
+│   ├── ironpass-subscription/   # Fetch, parse and detect placeholders
 │   ├── ironpass-hwid/           # HWID generation and device info
 │   ├── ironpass-config/         # TOML config management
 │   ├── ironpass-backend/        # Proxy backend abstraction and config generators
@@ -75,7 +75,7 @@ graph TD
 ```
 
 - `CLI` dispatches to command handlers and talks to `ironpassd` via `ironpass-api-client`.
-- `Subscription` owns the fetch/parse/export loop.
+- `Subscription` owns the fetch/parse loop.
 - `HWID` supplies identifiers used by fetchers.
 - `Config` persists user settings.
 - `Backend` generates sing-box/Xray-core configurations and is used by the `proxy` command.
@@ -93,7 +93,6 @@ Key types:
 | `Protocol`            | VPN protocol enumeration (VLESS, VMess, Trojan, SS, etc.) | `crates/ironpass-core/src/models.rs`          |
 | `Transport`           | Transport layer enumeration (TCP, WebSocket, gRPC, etc.)  | `crates/ironpass-core/src/models.rs`          |
 | `Security`            | Security mode (None, TLS, Reality)                        | `crates/ironpass-core/src/models.rs`          |
-| `OutputFormat`        | Target export format                                      | `crates/ironpass-core/src/models.rs`          |
 | `ProxyNode`           | Canonical representation of a single proxy node           | `crates/ironpass-core/src/models.rs`          |
 | `Subscription`        | Parsed subscription with nodes, traffic and metadata      | `crates/ironpass-core/src/models.rs`          |
 | `SubscriptionMetadata`| Provider metadata (title, update interval, announce)      | `crates/ironpass-core/src/models.rs`          |
@@ -101,7 +100,6 @@ Key types:
 | `Error`               | Unified error enum                                        | `crates/ironpass-core/src/error.rs`           |
 | `SubscriptionFetcher` | Async trait for fetching subscriptions                    | `crates/ironpass-core/src/traits.rs`          |
 | `NodeParser`          | Trait for parsing subscription text into nodes            | `crates/ironpass-core/src/traits.rs`          |
-| `NodeExporter`        | Trait for exporting nodes to a target format              | `crates/ironpass-core/src/traits.rs`          |
 | `HwidProvider`        | Trait for HWID generation and device info                 | `crates/ironpass-core/src/traits.rs`          |
 
 ### `ironpass-subscription`
@@ -111,7 +109,6 @@ Implements the subscription lifecycle.
 - `SubscriptionService` (`service.rs`) is the high-level facade used by the CLI.
 - `HttpSubscriptionFetcher` (`fetcher.rs`) performs HTTP requests, HWID injection, retry logic, traffic parsing and metadata extraction.
 - `SubscriptionParser` (`parser.rs`) auto-detects and parses Base64 lists, raw URI lists, Clash YAML and sing-box JSON.
-- `NodeExporterImpl` (`exporter.rs`) exports nodes to Clash YAML, sing-box JSON, V2Ray base64, and raw URIs.
 - `PlaceholderPolicy` (`fetcher.rs`) scores nodes to detect provider placeholders.
 
 ### `ironpass-hwid`
@@ -120,7 +117,7 @@ Implements the subscription lifecycle.
 
 ### `ironpass-config`
 
-`ConfigManager` loads and saves `config.toml` with `[general]`, `[subscription]`, `[hwid]`, `[output]` and `[logging]` sections.
+`ConfigManager` loads and saves `config.toml` with `[general]`, `[subscription]`, `[hwid]` and `[logging]` sections.
 
 ### `ironpass-backend`
 
@@ -158,9 +155,7 @@ The binary crate. `main.rs` bootstraps tracing and `color-eyre`, then delegates 
 |-------------------|----------------------|
 | `sub.rs`          | `fetch`, `sub`       |
 | `hwid.rs`         | `hwid`               |
-| `convert.rs`      | `convert`            |
 | `analyze.rs`      | `analyze`            |
-| `export.rs`       | `export`             |
 | `proxy.rs`        | `proxy`              |
 | `ping.rs`         | `ping`               |
 | `completions.rs`  | `completions`        |
@@ -208,7 +203,7 @@ sequenceDiagram
     SVC-->>CLI: Subscription
     CLI->>CLI: filter placeholders (unless --include-placeholders)
     CLI->>CLI: sort nodes
-    CLI->>OUT: print table / JSON / export format
+    CLI->>OUT: print table / JSON
 ```
 
 ## HWID Retry State Machine
@@ -317,7 +312,6 @@ Each crate contains inline `#[cfg(test)]` modules covering its public API. `iron
 - VLESS, VMess, Trojan and Shadowsocks URI parsing.
 - Clash YAML and sing-box JSON parsing.
 - Format detection.
-- Round-trip export to raw, V2Ray, Clash and sing-box formats.
 - Placeholder detection with default and strict policies.
 - `subscription-userinfo` parsing.
 
@@ -326,7 +320,6 @@ Each crate contains inline `#[cfg(test)]` modules covering its public API. `iron
 - `crates/ironpass-subscription/tests/hwid_retry_tests.rs` — verifies the HWID retry state machine using a `wiremock` server and a mocked `HwidProvider`.
 - `crates/ironpass-subscription/tests/subscription_metadata_tests.rs` — verifies header and inline metadata extraction, precedence rules, and traffic parsing.
 - `crates/ironpass-subscription/tests/placeholder_policy_tests.rs` — verifies default, strict and custom placeholder policies.
-- `crates/ironpass-subscription/tests/round_trip_tests.rs` — verifies parsing and exporting across all supported formats.
 - `crates/ironpass-api/tests/api_integration.rs` — verifies the `ironpassd` HTTP API surface using an in-memory database and a mocked `HwidProvider`.
 - `crates/ironpass-cli/tests/cli_api_integration.rs` — end-to-end CLI tests against a spawned `ironpassd` instance.
 - `crates/ironpass-cli/tests/fetch_integration_tests.rs` — five end-to-end CLI tests that exercise the `ironpass fetch` command against a `wiremock` server, covering automatic HWID retry, explicit HWID, placeholder inclusion, device limit errors, and JSON output.

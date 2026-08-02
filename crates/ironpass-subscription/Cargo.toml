@@ -1,6 +1,6 @@
 [package]
 name = "ironpass-subscription"
-description = "Subscription fetching, parsing and format conversion"
+description = "Subscription fetching and parsing"
 version.workspace = true
 edition.workspace = true
 

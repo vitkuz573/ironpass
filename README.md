@@ -2,14 +2,14 @@
 
 # IronPass
 
-IronPass is an enterprise-grade, open-source **VPN client** for the terminal. It fetches subscription links, parses multiple proxy formats (VLESS, VMess, Trojan, Shadowsocks, Clash, sing-box), filters placeholder nodes, converts between output formats, and — most importantly — **connects to those servers directly** through a local SOCKS5/HTTP proxy with HWID binding support.
+IronPass is an enterprise-grade, open-source **VPN client** for the terminal. It fetches subscription links, parses multiple proxy formats (VLESS, VMess, Trojan, Shadowsocks, Clash, sing-box), filters placeholder nodes, and — most importantly — **connects to those servers directly** through a local SOCKS5/HTTP proxy with HWID binding support.
 
 ## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
-- [Supported Input and Output Formats](#supported-input-and-output-formats)
+- [Supported Input Formats](#supported-input-formats)
 - [HWID Binding](#hwid-binding)
 - [Configuration File](#configuration-file)
 - [CLI Reference](#cli-reference)
@@ -19,9 +19,8 @@ IronPass is an enterprise-grade, open-source **VPN client** for the terminal. It
 
 ## Features
 
-- **Full VPN client**: Start a local SOCKS5/HTTP proxy and route your traffic through any parsed node — not just convert configs.
+- **Full VPN client**: Start a local SOCKS5/HTTP proxy and route your traffic through any parsed node.
 - **Multi-format parsing**: VLESS, VMess, Trojan, Shadowsocks, Clash YAML, sing-box JSON, Base64-encoded URI lists.
-- **Format conversion**: Export subscriptions to Clash, sing-box, V2Ray base64, raw URIs, JSON, or a terminal table.
 - **HWID-aware fetching**: Automatic retry with a generated Hardware ID when providers respond with placeholder nodes.
 - **Placeholder detection**: Configurable scoring policy distinguishes real nodes from provider sentinels.
 - **Subscription metadata**: Extracts `profile-title`, `profile-update-interval`, `profile-web-page-url`, `announce`, and `subscription-userinfo` traffic data.
@@ -87,13 +86,7 @@ Then route your traffic through it:
 curl -x socks5h://127.0.0.1:1080 https://httpbin.org/ip
 ```
 
-### 5. Export to a client format
-
-```bash
-ironpass export "https://example.com/sub/TOKEN" --target singbox --output singbox.json
-```
-
-## Supported Input and Output Formats
+## Supported Input Formats
 
 ### Input formats (auto-detected)
 
@@ -103,18 +96,6 @@ ironpass export "https://example.com/sub/TOKEN" --target singbox --output singbo
 | Base64 URI list     | Base64-encoded raw URI list                                    |
 | Clash YAML          | Clash / Clash Meta configuration with a `proxies:` section     |
 | sing-box JSON       | sing-box configuration with an `outbounds` array               |
-
-### Output formats
-
-| Format      | CLI flag / target           | Typical client                       |
-|-------------|-----------------------------|--------------------------------------|
-| Table       | `--format table`            | Terminal preview                     |
-| JSON        | `--format json`             | Scripting, inspection                |
-| Raw URIs    | `--format raw`              | Generic share format                 |
-| V2Ray       | `--format v2ray`            | V2RayN, V2RayNG, NekoRay             |
-| Clash       | `--format clash`            | Clash, Clash Meta / mihomo           |
-| sing-box    | `--format singbox`          | sing-box, Hiddify                    |
-| Shadowrocket| `--target shadowrocket`     | Shadowrocket                         |
 
 ## HWID Binding
 
@@ -166,12 +147,6 @@ enabled = true
 custom_id = ""
 device_model_override = ""
 
-[output]
-format = "clash"
-output_file = ""
-pretty = true
-sort_by = ""
-
 [logging]
 level = "info"
 file = true
@@ -192,9 +167,6 @@ log_dir = ""
 | `hwid`         | `enabled`               | `true`          | Allow HWID generation and injection                      |
 | `hwid`         | `custom_id`             | none            | Override the generated HWID                              |
 | `hwid`         | `device_model_override` | none            | Override reported device model                           |
-| `output`       | `format`                | `clash`         | Default export format                                    |
-| `output`       | `pretty`                | `true`          | Pretty-print JSON/YAML output                            |
-| `output`       | `sort_by`               | none            | Default sort field (`name`, `server`, `port`, `protocol`)|
 | `logging`      | `level`                 | `info`          | Log level (`error`, `warn`, `info`, `debug`, `trace`)    |
 | `logging`      | `file`                  | `true`          | Write logs to a file                                     |
 
@@ -221,8 +193,7 @@ Fetch and display subscription nodes.
 
 | Flag                       | Description                                              |
 |----------------------------|----------------------------------------------------------|
-| `--format FORMAT`          | Output format (`table`, `json`, `raw`, `v2ray`, `clash`, `singbox`) |
-| `--output PATH`            | Write output to a file                                   |
+| `--format FORMAT`          | Output format (`table` or `json`)                        |
 | `--hwid VALUE`             | Send a specific HWID on the first request                |
 | `--include-placeholders`   | Do not filter placeholder nodes                          |
 | `--sort FIELD`             | Sort by `name`, `server`, `port`, or `protocol`          |
@@ -232,7 +203,6 @@ Examples:
 ```bash
 ironpass fetch "https://example.com/sub/TOKEN"
 ironpass fetch --format json --sort name
-ironpass fetch "https://example.com/sub/TOKEN" --format clash --output clash.yaml
 ```
 
 ### `ironpass sub <action>`
@@ -255,25 +225,9 @@ Manage saved subscriptions.
 | `regenerate`     | Regenerate stored HWID     |
 | `set VALUE`      | Set a custom HWID          |
 
-### `ironpass convert [INPUT] --to FORMAT`
-
-Convert a local subscription file between formats. Reads from stdin if `INPUT` is omitted.
-
-```bash
-ironpass convert input.yaml --to singbox --output singbox.json
-```
-
 ### `ironpass analyze [URL]`
 
 Print statistics about a subscription.
-
-### `ironpass export [URL] --target TARGET`
-
-Export a subscription for a specific client. Filters out placeholder nodes.
-
-```bash
-ironpass export "https://example.com/sub/TOKEN" --target singbox --output sb.json
-```
 
 ### `ironpass ping URL`
 

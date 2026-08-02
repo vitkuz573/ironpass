@@ -535,7 +535,7 @@ impl Default for PlaceholderPolicy {
 
 /// Placeholder detection using the default [`PlaceholderPolicy`].
 ///
-/// This is the convenience entry point used by the CLI and exporters to filter out
+/// This is the convenience entry point used by the CLI to filter out
 /// sentinel nodes. For configurable detection (e.g. enterprise strict mode or custom
 /// sentinel values), build a [`PlaceholderPolicy`] directly.
 pub fn is_placeholder_node(node: &ProxyNode) -> bool {

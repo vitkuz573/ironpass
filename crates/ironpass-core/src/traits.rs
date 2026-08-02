@@ -1,4 +1,4 @@
-use crate::models::{OutputFormat, ProxyNode, Subscription};
+use crate::models::{ProxyNode, Subscription};
 use async_trait::async_trait;
 
 #[async_trait]
@@ -9,10 +9,6 @@ pub trait SubscriptionFetcher: Send + Sync {
 pub trait NodeParser: Send + Sync {
     fn parse(&self, input: &str) -> crate::Result<Vec<ProxyNode>>;
     fn detect_format(&self, input: &str) -> crate::models::SubscriptionFormat;
-}
-
-pub trait NodeExporter: Send + Sync {
-    fn export(&self, nodes: &[ProxyNode], format: &OutputFormat) -> crate::Result<String>;
 }
 
 pub trait HwidProvider: Send + Sync {
