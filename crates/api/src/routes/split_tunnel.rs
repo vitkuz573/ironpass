@@ -1,6 +1,7 @@
 use crate::error::ApiError;
-use crate::models::{AddSplitTunnelRuleRequest, SplitTunnelRule, UpdateSplitTunnelRuleRequest};
+use crate::models::{AddSplitTunnelRuleRequest, UpdateSplitTunnelRuleRequest};
 use crate::state::AppState;
+use ironpass_core::models::SplitTunnelRule;
 use axum::{
     extract::{Path, Query, State},
     Json,

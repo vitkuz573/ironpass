@@ -1,7 +1,8 @@
 //! Generate sing-box JSON configuration from a `ProxyNode`.
 
-use crate::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
-use ironpass_core::models::{Protocol, ProxyNode, Security, Transport};
+use ironpass_core::models::{
+    Protocol, ProxyNode, Security, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Transport,
+};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -573,7 +574,7 @@ mod tests {
 
     #[test]
     fn domain_rule_appears_in_route() {
-        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![SplitTunnelRule::new(
             SplitTunnelTarget::Domain,
@@ -593,7 +594,7 @@ mod tests {
 
     #[test]
     fn wildcard_domain_uses_domain_suffix() {
-        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![SplitTunnelRule::new(
             SplitTunnelTarget::Domain,
@@ -610,7 +611,7 @@ mod tests {
 
     #[test]
     fn ip_and_cidr_rules_use_ip_cidr() {
-        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![
             SplitTunnelRule::new(
@@ -638,7 +639,7 @@ mod tests {
 
     #[test]
     fn app_rules_are_skipped() {
-        use crate::models::{SplitTunnelAction, SplitTunnelTarget};
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![SplitTunnelRule::new(
             SplitTunnelTarget::App,

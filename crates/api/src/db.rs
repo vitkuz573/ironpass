@@ -1,7 +1,9 @@
 //! SQLite persistence layer for subscriptions, nodes, proxy state and split tunnel rules.
 
-use crate::models::{SplitTunnelRule, SplitTunnelTarget, SplitTunnelAction, StoredSubscription};
-use ironpass_core::models::{ProxyNode, SubscriptionMetadata};
+use crate::models::StoredSubscription;
+use ironpass_core::models::{
+    ProxyNode, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, SubscriptionMetadata,
+};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};

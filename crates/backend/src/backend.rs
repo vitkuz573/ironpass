@@ -5,10 +5,9 @@
 //! (including `Auto`) to a concrete backend instance.
 
 use crate::core_process::CoreType;
-use crate::models::SplitTunnelRule;
 use crate::singbox::generate_config as generate_singbox_config;
 use crate::xray::generate_config as generate_xray_config;
-use ironpass_core::models::{Protocol, ProxyNode, Security, Transport};
+use ironpass_core::models::{Protocol, ProxyNode, Security, SplitTunnelRule, Transport};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 

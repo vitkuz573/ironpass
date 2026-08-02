@@ -286,11 +286,11 @@ pub enum BackendTypeArg {
 }
 
 impl BackendTypeArg {
-    pub fn as_backend_type(&self) -> ironpass_api::backend::BackendType {
+    pub fn as_backend_type(&self) -> ironpass_backend::backend::BackendType {
         match self {
-            BackendTypeArg::Auto => ironpass_api::backend::BackendType::Auto,
-            BackendTypeArg::SingBox => ironpass_api::backend::BackendType::SingBox,
-            BackendTypeArg::Xray => ironpass_api::backend::BackendType::Xray,
+            BackendTypeArg::Auto => ironpass_backend::backend::BackendType::Auto,
+            BackendTypeArg::SingBox => ironpass_backend::backend::BackendType::SingBox,
+            BackendTypeArg::Xray => ironpass_backend::backend::BackendType::Xray,
         }
     }
 }

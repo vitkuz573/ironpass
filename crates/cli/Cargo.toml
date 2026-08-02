@@ -13,8 +13,7 @@ ironpass-core = { workspace = true }
 ironpass-subscription = { workspace = true }
 ironpass-hwid = { workspace = true }
 ironpass-config = { workspace = true }
-ironpass-transport = { workspace = true }
-ironpass-engine = { workspace = true }
+ironpass-backend = { workspace = true }
 ironpass-api = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }

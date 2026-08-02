@@ -5,8 +5,7 @@ members = [
     "crates/subscription",
     "crates/hwid",
     "crates/config",
-    "crates/transport",
-    "crates/engine",
+    "crates/backend",
     "crates/api",
     "crates/cli",
 ]
@@ -112,6 +111,5 @@ ironpass-core = { path = "crates/core" }
 ironpass-subscription = { path = "crates/subscription" }
 ironpass-hwid = { path = "crates/hwid" }
 ironpass-config = { path = "crates/config" }
-ironpass-transport = { path = "crates/transport" }
-ironpass-engine = { path = "crates/engine" }
+ironpass-backend = { path = "crates/backend" }
 ironpass-api = { path = "crates/api" }

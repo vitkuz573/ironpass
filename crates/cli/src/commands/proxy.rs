@@ -1,8 +1,8 @@
 use crate::api_client::ApiClient;
 use crate::args::OutputFormatArg;
 use color_eyre::eyre;
-use ironpass_api::backend::BackendType;
 use ironpass_api::models::StartProxyRequest;
+use ironpass_backend::backend::BackendType;
 use uuid::Uuid;
 
 pub async fn handle(

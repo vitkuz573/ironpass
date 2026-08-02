@@ -1,5 +1,6 @@
 use clap::Parser;
-use ironpass_api::{core_process::CoreType, default_state, serve};
+use ironpass_api::{default_state, serve};
+use ironpass_backend::CoreType;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tracing_subscriber::EnvFilter;

@@ -70,18 +70,22 @@ fn parse_optional_uuid(value: &Option<String>) -> eyre::Result<Option<Uuid>> {
     }
 }
 
-fn map_target(target: crate::args::SplitTunnelTargetArg) -> ironpass_api::models::SplitTunnelTarget {
+fn map_target(
+    target: crate::args::SplitTunnelTargetArg,
+) -> ironpass_core::models::SplitTunnelTarget {
     match target {
-        crate::args::SplitTunnelTargetArg::Domain => ironpass_api::models::SplitTunnelTarget::Domain,
-        crate::args::SplitTunnelTargetArg::Ip => ironpass_api::models::SplitTunnelTarget::Ip,
-        crate::args::SplitTunnelTargetArg::Cidr => ironpass_api::models::SplitTunnelTarget::Cidr,
-        crate::args::SplitTunnelTargetArg::App => ironpass_api::models::SplitTunnelTarget::App,
+        crate::args::SplitTunnelTargetArg::Domain => ironpass_core::models::SplitTunnelTarget::Domain,
+        crate::args::SplitTunnelTargetArg::Ip => ironpass_core::models::SplitTunnelTarget::Ip,
+        crate::args::SplitTunnelTargetArg::Cidr => ironpass_core::models::SplitTunnelTarget::Cidr,
+        crate::args::SplitTunnelTargetArg::App => ironpass_core::models::SplitTunnelTarget::App,
     }
 }
 
-fn map_action(action: crate::args::SplitTunnelActionArg) -> ironpass_api::models::SplitTunnelAction {
+fn map_action(
+    action: crate::args::SplitTunnelActionArg,
+) -> ironpass_core::models::SplitTunnelAction {
     match action {
-        crate::args::SplitTunnelActionArg::Direct => ironpass_api::models::SplitTunnelAction::Direct,
-        crate::args::SplitTunnelActionArg::Proxy => ironpass_api::models::SplitTunnelAction::Proxy,
+        crate::args::SplitTunnelActionArg::Direct => ironpass_core::models::SplitTunnelAction::Direct,
+        crate::args::SplitTunnelActionArg::Proxy => ironpass_core::models::SplitTunnelAction::Proxy,
     }
 }

@@ -1,10 +1,8 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use ironpass_api::db::DbPool;
-use ironpass_api::models::{
-    AddSplitTunnelRuleRequest, AddSubscriptionRequest, SplitTunnelAction, SplitTunnelTarget,
-    StartProxyRequest,
-};
+use ironpass_api::models::{AddSplitTunnelRuleRequest, AddSubscriptionRequest, StartProxyRequest};
+use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
 use ironpass_api::state::AppState;
 use ironpass_config::ConfigManager;
 use ironpass_core::traits::HwidProvider;
@@ -215,7 +213,7 @@ async fn split_tunnel_crud() {
     assert_eq!(add.status(), StatusCode::OK);
 
     let body_bytes = axum::body::to_bytes(add.into_body(), usize::MAX).await.unwrap();
-    let rule: ironpass_api::models::SplitTunnelRule = serde_json::from_slice(&body_bytes).unwrap();
+    let rule: SplitTunnelRule = serde_json::from_slice(&body_bytes).unwrap();
     assert_eq!(rule.value, "example.com");
     let id = rule.id;
 

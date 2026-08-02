@@ -2,9 +2,9 @@
 
 use ironpass_api::models::{
     AddSplitTunnelRuleRequest, AddSubscriptionRequest, ConfigResponse, HealthResponse, HwidResponse,
-    NodeWithSubscription, ProxyStatus, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
-    StartProxyRequest, StoredSubscription,
+    NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription,
 };
+use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
 use ironpass_config::AppConfig;
 use serde::de::DeserializeOwned;
 use std::time::Duration;

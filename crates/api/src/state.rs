@@ -1,14 +1,14 @@
 //! Global application state shared across API handlers.
 
-use crate::backend::{BackendRegistry, BackendType, ProxyPorts};
-use crate::core_process::{CoreProcessManager, CoreType};
 use crate::db::{import_legacy_subscriptions, DbPool};
 use crate::models::{
-    NodeWithSubscription, ProxyStatus, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
-    StartProxyRequest, StoredSubscription,
+    NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription,
+};
+use ironpass_backend::{
+    BackendRegistry, BackendType, CoreProcessManager, CoreType, GeneratedConfig, ProxyPorts,
 };
 use ironpass_config::{AppConfig, ConfigManager};
-use ironpass_core::models::Subscription;
+use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Subscription};
 use ironpass_core::traits::HwidProvider;
 use ironpass_subscription::{FetchOptions, HttpSubscriptionFetcher, SubscriptionService};
 use reqwest::Client;
@@ -75,8 +75,8 @@ impl AppState {
         &self,
         backend_type: BackendType,
         node: &ironpass_core::models::ProxyNode,
-    ) -> anyhow::Result<(BackendType, Arc<dyn crate::backend::Backend>)> {
-        let backend: Arc<dyn crate::backend::Backend> = match backend_type {
+    ) -> anyhow::Result<(BackendType, Arc<dyn ironpass_backend::Backend>)> {
+        let backend: Arc<dyn ironpass_backend::Backend> = match backend_type {
             BackendType::Auto => {
                 let preferred = *self.preferred_backend.read().await;
                 if preferred == BackendType::Auto {
@@ -402,7 +402,7 @@ impl AppState {
         }
 
         let rules = self.split_tunnel_rules.read().await.clone();
-        let config = backend.generate_config(&node.node, ports, &rules)?;
+        let config: GeneratedConfig = backend.generate_config(&node.node, ports, &rules)?;
         let core_type = backend.core_type();
         let actual_ports = ProxyPorts {
             socks: config.socks_port,

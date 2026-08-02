@@ -1,0 +1,20 @@
+[package]
+name = "ironpass-backend"
+description = "Proxy backend abstraction and core configuration generators for IronPass"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ironpass-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

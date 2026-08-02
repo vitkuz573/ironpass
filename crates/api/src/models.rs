@@ -1,69 +1,12 @@
 //! API-specific domain models and request/response DTOs.
 
-use crate::backend::BackendType;
 use chrono::{DateTime, Utc};
-use ironpass_core::models::{HwidInfo, ProxyNode, SubscriptionMetadata};
+use ironpass_backend::backend::BackendType;
+use ironpass_core::models::{
+    HwidInfo, ProxyNode, SplitTunnelAction, SplitTunnelTarget, SubscriptionMetadata,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-/// Target type for a split tunnel rule.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SplitTunnelTarget {
-    /// Exact domain name.
-    #[default]
-    Domain,
-    /// IPv4 or IPv6 address.
-    Ip,
-    /// CIDR range.
-    Cidr,
-    /// Application name or path (not supported by all backends).
-    App,
-}
-
-/// Action for a split tunnel rule.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum SplitTunnelAction {
-    /// Bypass the proxy and route directly.
-    #[default]
-    Direct,
-    /// Force traffic through the proxy.
-    Proxy,
-}
-
-/// A user-defined split tunnel (selective routing) rule.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct SplitTunnelRule {
-    pub id: Uuid,
-    pub target: SplitTunnelTarget,
-    pub value: String,
-    pub action: SplitTunnelAction,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub node_id: Option<Uuid>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-impl SplitTunnelRule {
-    pub fn new(
-        target: SplitTunnelTarget,
-        value: impl Into<String>,
-        action: SplitTunnelAction,
-        node_id: Option<Uuid>,
-    ) -> Self {
-        let now = Utc::now();
-        Self {
-            id: Uuid::new_v4(),
-            target,
-            value: value.into(),
-            action,
-            node_id,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-}
 
 /// Request body for adding a split tunnel rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]

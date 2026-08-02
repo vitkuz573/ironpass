@@ -1,12 +1,8 @@
-pub mod backend;
-pub mod core_process;
 pub mod db;
 pub mod error;
 pub mod models;
 pub mod routes;
-pub mod singbox;
 pub mod state;
-pub mod xray;
 
 use crate::state::AppState;
 use axum::Router;
