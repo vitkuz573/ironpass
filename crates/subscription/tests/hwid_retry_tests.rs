@@ -71,7 +71,6 @@ async fn auto_retries_with_generated_hwid_on_placeholder_response() {
                 ResponseTemplate::new(200)
                     .insert_header("x-hwid-active", "true")
                     .insert_header("x-hwid-not-supported", "true")
-                    .insert_header("x-hwid-limit", "true")
                     .set_body_string(base64_of(&placeholder_body()))
             } else if has_hwid {
                 ResponseTemplate::new(200)
@@ -115,7 +114,6 @@ async fn returns_error_when_hwid_retry_still_yields_placeholders() {
             ResponseTemplate::new(200)
                 .insert_header("x-hwid-active", "true")
                 .insert_header("x-hwid-not-supported", "true")
-                .insert_header("x-hwid-limit", "true")
                 .set_body_string(base64_of(&placeholder_body())),
         )
         .expect(2)
@@ -154,7 +152,7 @@ async fn returns_device_limit_error_when_hwid_limit_header_set() {
                 .insert_header("x-hwid-limit", "true")
                 .set_body_string(base64_of(&placeholder_body())),
         )
-        .expect(2)
+        .expect(1)
         .mount(&server)
         .await;
 
