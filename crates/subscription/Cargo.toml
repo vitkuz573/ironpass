@@ -1,0 +1,21 @@
+[package]
+name = "ironpass-subscription"
+description = "Subscription fetching, parsing and format conversion"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ironpass-core = { workspace = true }
+ironpass-hwid = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+base64 = { workspace = true }
+url = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }

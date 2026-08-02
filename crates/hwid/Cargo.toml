@@ -1,0 +1,21 @@
+[package]
+name = "ironpass-hwid"
+description = "Hardware ID generation and device fingerprinting"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ironpass-core = { workspace = true }
+sha2 = { workspace = true }
+uuid = { workspace = true }
+machine-uid = { workspace = true }
+gethostname = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }

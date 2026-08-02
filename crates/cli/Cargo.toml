@@ -1,0 +1,37 @@
+[package]
+name = "ironpass-cli"
+description = "IronPass CLI — enterprise VPN subscription manager"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ironpass"
+path = "src/main.rs"
+
+[dependencies]
+ironpass-core = { workspace = true }
+ironpass-subscription = { workspace = true }
+ironpass-hwid = { workspace = true }
+ironpass-config = { workspace = true }
+ironpass-transport = { workspace = true }
+ironpass-engine = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+color-eyre = { workspace = true }
+indicatif = { workspace = true }
+console = { workspace = true }
+dialoguer = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+reqwest = { workspace = true }
+bytesize = { workspace = true }
+hostname = { workspace = true }
+url = { workspace = true }
+toml = { workspace = true }
+uuid = { workspace = true }
