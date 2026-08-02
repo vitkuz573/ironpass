@@ -81,12 +81,23 @@ impl ProxyNode {
     }
 }
 
+/// Provider-specific metadata extracted from subscription headers or inline body lines.
+///
+/// The fetcher recognises the de-facto standard keys used by many providers:
+/// `profile-title`, `profile-update-interval`, `profile-web-page-url` and
+/// `announce`/`announces`. Values prefixed with `base64:` are decoded
+/// automatically. HTTP response headers take precedence over inline body values.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubscriptionMetadata {
+    /// Human-readable profile title, if provided.
     pub profile_title: Option<String>,
+    /// Recommended update interval in hours.
     pub profile_update_interval_hours: Option<u64>,
+    /// Provider web page or support URL.
     pub profile_web_page_url: Option<String>,
+    /// Provider announcement or status message.
     pub announcement: Option<String>,
+    /// Raw map of all recognised header keys and their (decoded) values.
     pub headers: HashMap<String, String>,
 }
 
@@ -102,16 +113,29 @@ impl Default for SubscriptionMetadata {
     }
 }
 
+/// A fully parsed subscription, including nodes, traffic accounting, expiry and metadata.
+///
+/// This is the output of [`crate::traits::SubscriptionFetcher::fetch`] and the main
+/// data structure consumed by the CLI for display, export and analysis.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Subscription {
+    /// Unique identifier assigned locally when the subscription is fetched.
     pub id: uuid::Uuid,
+    /// Source URL from which the subscription was fetched.
     pub url: String,
+    /// Optional user-defined display name.
     pub name: Option<String>,
+    /// Parsed proxy nodes (real + placeholder, unless filtered by the caller).
     pub nodes: Vec<ProxyNode>,
+    /// Timestamp when the subscription was fetched.
     pub fetched_at: chrono::DateTime<chrono::Utc>,
+    /// Optional account expiry parsed from `subscription-userinfo`.
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Combined upload + download bytes used, if reported by the provider.
     pub traffic_used: Option<u64>,
+    /// Total allowed bytes, if reported by the provider.
     pub traffic_total: Option<u64>,
+    /// Provider metadata such as title, update interval and announcements.
     pub metadata: SubscriptionMetadata,
 }
 

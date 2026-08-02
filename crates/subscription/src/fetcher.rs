@@ -7,6 +7,9 @@ use tracing::{info, warn};
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Controls optional behaviour of the HTTP subscription fetcher.
+///
+/// Use this structure to enable or disable automatic HWID retry and to tune the
+/// number of retries performed when a provider responds with placeholder nodes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FetchOptions {
     /// Automatically generate a HWID and retry when the server returns placeholders.
@@ -26,6 +29,14 @@ impl Default for FetchOptions {
 
 /// HTTP implementation of [`SubscriptionFetcher`] with dependency-injected
 /// [`reqwest::Client`] and [`HwidProvider`] for testability.
+///
+/// `HttpSubscriptionFetcher` is responsible for:
+///
+/// 1. Building the outbound HTTP request, optionally injecting HWID and device-info
+///    headers.
+/// 2. Executing the request and validating the HTTP status.
+/// 3. Parsing the response body into proxy nodes and extracting traffic / metadata.
+/// 4. Applying the HWID retry policy when placeholder-only responses are received.
 pub struct HttpSubscriptionFetcher {
     client: reqwest::Client,
     hwid_provider: Box<dyn HwidProvider>,
@@ -324,6 +335,18 @@ use std::net::IpAddr;
 use uuid::Uuid;
 
 /// Configurable policy for detecting placeholder / sentinel proxy nodes.
+///
+/// A placeholder is a node returned by a provider that is not intended for actual
+/// use — for example a node with address `0.0.0.0`, port `0` or the nil UUID.
+/// Providers emit placeholders when a subscription requires HWID activation or when
+/// the device limit has been reached.
+///
+/// The policy supports both hard sentinels (always treated as placeholders) and a
+/// scoring system where a node must match at least `score_threshold` independent
+/// criteria. Use [`PlaceholderPolicy::default`] for conservative detection that
+/// matches the historical behaviour of [`is_placeholder_node`], or
+/// [`PlaceholderPolicy::strict`] for enterprise environments where loopback and
+/// common sentinel domains should also be rejected.
 #[derive(Debug, Clone)]
 pub struct PlaceholderPolicy {
     dummy_addresses: HashSet<String>,
@@ -491,7 +514,11 @@ impl PlaceholderPolicy {
         if self.dummy_addresses.contains(&lower) {
             return true;
         }
-        if self.dummy_address_prefixes.iter().any(|p| lower.starts_with(p)) {
+        if self
+            .dummy_address_prefixes
+            .iter()
+            .any(|p| lower.starts_with(p))
+        {
             return true;
         }
         if let Ok(ip) = addr.parse::<IpAddr>() {
@@ -514,11 +541,16 @@ impl Default for PlaceholderPolicy {
     }
 }
 
-/// Placeholder detection via protocol-level signals only.
+/// Placeholder detection using the default [`PlaceholderPolicy`].
+///
+/// This is the convenience entry point used by the CLI and exporters to filter out
+/// sentinel nodes. For configurable detection (e.g. enterprise strict mode or custom
+/// sentinel values), build a [`PlaceholderPolicy`] directly.
 pub fn is_placeholder_node(node: &ProxyNode) -> bool {
     PlaceholderPolicy::default().is_placeholder(node)
 }
 
+/// Return the display names of all placeholder nodes in the slice.
 pub fn placeholder_messages(nodes: &[ProxyNode]) -> Vec<String> {
     nodes
         .iter()
@@ -540,6 +572,13 @@ fn mask_url(url: &str) -> String {
     }
 }
 
+/// Parse the `subscription-userinfo` header value.
+///
+/// The expected format is a semicolon-separated list of `key=value` pairs such as
+/// `upload=0; download=205542220; total=322122547200; expire=1786355700`. The
+/// function returns `(used_bytes, total_bytes, expires_at)` where `used` is the
+/// sum of upload and download. Missing numeric fields default to zero; missing or
+/// invalid `expire` returns `None`.
 fn parse_subscription_info(
     info: &str,
 ) -> (
@@ -623,13 +662,16 @@ fn extract_header_metadata(headers: &reqwest::header::HeaderMap) -> Subscription
     metadata
 }
 
-/// Extract subscription metadata written as key=value lines in the response body.
+/// Extract subscription metadata written as `key=value` lines in the response body.
 ///
 /// Recognised keys are `profile-title`, `profile-update-interval`,
 /// `profile-web-page-url`, `announce`, and `announces`. Values prefixed with
 /// `base64:` are decoded automatically. The body is base64-decoded first if the
 /// entire payload is a valid Base64 string, which is common for subscription
 /// providers that encode the whole node list.
+///
+/// HTTP response headers take precedence over inline body values; callers should
+/// merge the result with header-derived metadata, with headers winning.
 pub fn extract_inline_metadata(body: &str) -> SubscriptionMetadata {
     let decoded_body = if let Ok(bytes) = STANDARD.decode(body.trim()) {
         String::from_utf8(bytes).unwrap_or_else(|_| body.to_string())
