@@ -8,10 +8,12 @@ use tokio::fs;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 const MAX_RESTART_ATTEMPTS: usize = 5;
 const BASE_BACKOFF: Duration = Duration::from_secs(1);
+const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Core type backing the proxy process.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -67,6 +69,9 @@ pub struct CoreProcessManager {
     // Cached PID of the running child. Updated independently of the child
     // mutex so `status()` can report it without blocking on the monitor wait.
     pid: Arc<Mutex<Option<u32>>>,
+    // Cancellation token for the currently running monitor task. `stop()` uses
+    // this to abort the monitor loop and wait for it to finish.
+    monitor_token: Arc<Mutex<CancellationToken>>,
 }
 
 impl CoreProcessManager {
@@ -80,6 +85,7 @@ impl CoreProcessManager {
             restart_count: Arc::new(Mutex::new(0)),
             running: Arc::new(Mutex::new(false)),
             pid: Arc::new(Mutex::new(None)),
+            monitor_token: Arc::new(Mutex::new(CancellationToken::new())),
         }
     }
 
@@ -93,6 +99,7 @@ impl CoreProcessManager {
             restart_count: Arc::new(Mutex::new(0)),
             running: Arc::new(Mutex::new(false)),
             pid: Arc::new(Mutex::new(None)),
+            monitor_token: Arc::new(Mutex::new(CancellationToken::new())),
         }
     }
 
@@ -145,6 +152,9 @@ impl CoreProcessManager {
     }
 
     pub async fn start(&self, config_json: &str) -> anyhow::Result<()> {
+        // Stop any existing process and monitor before spawning a new one.
+        self.stop().await.ok();
+
         let bin = self.locate_binary().await?;
 
         let temp_dir = std::env::temp_dir().join("ironpass");
@@ -178,6 +188,7 @@ impl CoreProcessManager {
         sleep(Duration::from_millis(300)).await;
         if let Some(status) = child.try_wait()? {
             let code = status.code().unwrap_or(-1);
+            let _ = fs::remove_file(&config_path).await;
             anyhow::bail!("{} exited immediately with code {}", self.core_name(), code);
         }
 
@@ -195,7 +206,13 @@ impl CoreProcessManager {
         *self.running.lock().await = true;
         *self.pid.lock().await = pid;
 
-        // Spawn monitor task.
+        // Spawn monitor task with a fresh cancellation token.
+        let token = {
+            let mut guard = self.monitor_token.lock().await;
+            let new_token = CancellationToken::new();
+            *guard = new_token.clone();
+            new_token
+        };
         let child_arc = Arc::clone(&self.child);
         let start_time_arc = Arc::clone(&self.start_time);
         let last_error_arc = Arc::clone(&self.last_error);
@@ -209,6 +226,7 @@ impl CoreProcessManager {
         tokio::spawn(async move {
             monitor(
                 core_type,
+                token,
                 child_arc,
                 start_time_arc,
                 last_error_arc,
@@ -226,6 +244,16 @@ impl CoreProcessManager {
     }
 
     pub async fn stop(&self) -> anyhow::Result<()> {
+        // Cancel the monitor task first so it cannot restart the child after we
+        // kill it. We keep the child ownership inside the monitor; cancelling
+        // makes the monitor drop its copy and exit instead of respawning.
+        let old_token = {
+            let mut guard = self.monitor_token.lock().await;
+            let old = guard.clone();
+            *guard = CancellationToken::new();
+            old
+        };
+
         // Take the child out of the mutex so we can kill and wait on it without
         // holding the lock across an await point.
         let child = {
@@ -233,14 +261,36 @@ impl CoreProcessManager {
             child.take()
         };
 
+        // A running child implies a monitor task was spawned. Wait for it to
+        // observe the cancellation and exit, but only up to STOP_TIMEOUT. If no
+        // child is running then there is nothing monitoring the process, so
+        // waiting for the token would hang forever.
+        let had_child = child.is_some();
+
         if let Some(mut c) = child {
             info!(
                 "Stopping {} (pid {})",
                 self.core_name(),
                 c.id().unwrap_or(0)
             );
-            let _ = c.start_kill();
-            let _ = c.wait().await;
+            // `start_kill()` only sends SIGKILL; the process may be a shell
+            // wrapper on some platforms. Use `kill()` and then wait so the
+            // OS reaps the child and the port is released.
+            if let Err(e) = c.start_kill() {
+                warn!("Failed to send kill signal to {}: {}", self.core_name(), e);
+            }
+            tokio::time::timeout(STOP_TIMEOUT, c.wait())
+                .await
+                .ok()
+                .transpose()
+                .ok();
+        }
+
+        if had_child {
+            // Wait for the old monitor task to observe the cancellation and exit.
+            tokio::time::timeout(STOP_TIMEOUT, old_token.cancelled())
+                .await
+                .ok();
         }
 
         *self.running.lock().await = false;
@@ -279,9 +329,12 @@ impl Default for CoreProcessManager {
     }
 }
 
+const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
 #[allow(clippy::too_many_arguments)]
 async fn monitor(
     core_type: CoreType,
+    token: CancellationToken,
     child_arc: Arc<Mutex<Option<Child>>>,
     start_time_arc: Arc<Mutex<Option<Instant>>>,
     last_error_arc: Arc<Mutex<Option<String>>>,
@@ -293,27 +346,53 @@ async fn monitor(
     bin: PathBuf,
 ) {
     loop {
-        // Take the child out of the mutex so we can wait on it without holding
-        // the lock. API calls can still lock the mutex to inspect the child.
-        let mut child = {
-            let mut guard = child_arc.lock().await;
-            guard.take()
-        };
+        // Exit immediately if stop was requested before this loop iteration.
+        if token.is_cancelled() {
+            *running_arc.lock().await = false;
+            *pid_arc.lock().await = None;
+            break;
+        }
 
-        let exit_status = if let Some(ref mut c) = child {
-            match c.wait().await {
-                Ok(status) => Some(status),
+        // Poll the child while it remains in the shared mutex. This lets
+        // `stop()` take ownership and kill it at any time; the monitor never
+        // holds the child across a long await, preventing leaked processes.
+        let exit_status = loop {
+            if token.is_cancelled() {
+                break None;
+            }
+
+            let mut guard = child_arc.lock().await;
+            let maybe_status = match guard.as_mut() {
+                Some(c) => c.try_wait(),
+                None => break None,
+            };
+
+            match maybe_status {
+                Ok(Some(status)) => break Some(status),
+                Ok(None) => {
+                    // Child still running. Release the lock and wait a bit.
+                    drop(guard);
+                    tokio::select! {
+                        biased;
+                        _ = token.cancelled() => break None,
+                        _ = sleep(WAIT_POLL_INTERVAL) => {}
+                    }
+                }
                 Err(e) => {
-                    error!("Failed to wait for {}: {}", core_name(core_type), e);
-                    Some(std::process::ExitStatus::default())
+                    error!("Failed to poll {} status: {}", core_name(core_type), e);
+                    break Some(std::process::ExitStatus::default());
                 }
             }
-        } else {
-            None
         };
 
+        if token.is_cancelled() {
+            *running_arc.lock().await = false;
+            *pid_arc.lock().await = None;
+            break;
+        }
+
         if exit_status.is_none() {
-            // Manager was stopped.
+            // Manager was stopped or no child to monitor.
             *running_arc.lock().await = false;
             *pid_arc.lock().await = None;
             break;
@@ -350,7 +429,16 @@ async fn monitor(
             attempt,
             MAX_RESTART_ATTEMPTS
         );
-        sleep(backoff).await;
+
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => {
+                *running_arc.lock().await = false;
+                *pid_arc.lock().await = None;
+                break;
+            }
+            _ = sleep(backoff) => {}
+        }
 
         // Rewrite config (path is reused).
         if fs::write(&config_path, &config_json).await.is_err() {
@@ -391,9 +479,8 @@ async fn monitor(
                 );
                 *start_time_arc.lock().await = Some(Instant::now());
                 *pid_arc.lock().await = new_pid;
-                child = Some(new_child);
                 let mut guard = child_arc.lock().await;
-                *guard = child;
+                *guard = Some(new_child);
             }
             Err(e) => {
                 error!("Failed to restart {}: {}", core_name(core_type), e);
