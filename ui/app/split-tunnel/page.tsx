@@ -56,9 +56,31 @@ export default function SplitTunnelPage() {
   const [action, setAction] = useState<SplitTunnelAction>("direct");
   const [nodeId, setNodeId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<SplitTunnelRule | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  function validateValue(): string | null {
+    if (!value.trim()) return "Value is required";
+    if (target === "ip") {
+      const parts = value.trim().split(".");
+      if (parts.length !== 4 || parts.some((p) => Number.isNaN(Number(p)) || Number(p) < 0 || Number(p) > 255)) {
+        return "Invalid IPv4 address";
+      }
+    }
+    if (target === "cidr") {
+      const [ip, prefix] = value.trim().split("/");
+      if (!ip || !prefix) return "Invalid CIDR (expected e.g. 10.0.0.0/8)";
+      const parts = ip.split(".");
+      if (parts.length !== 4 || parts.some((p) => Number.isNaN(Number(p)) || Number(p) < 0 || Number(p) > 255)) {
+        return "Invalid CIDR base address";
+      }
+      const n = Number(prefix);
+      if (Number.isNaN(n) || n < 0 || n > 32) return "Invalid CIDR prefix";
+    }
+    return null;
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -85,11 +107,17 @@ export default function SplitTunnelPage() {
     setValue("");
     setAction("direct");
     setNodeId("");
+    setFormError(null);
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!value.trim()) return;
+    const error = validateValue();
+    if (error) {
+      setFormError(error);
+      return;
+    }
+    setFormError(null);
     setSubmitting(true);
     try {
       await IronpassApi.addSplitTunnelRule(
@@ -108,9 +136,36 @@ export default function SplitTunnelPage() {
     }
   }
 
+  function validateEditingValue(): string | null {
+    if (!editing) return null;
+    if (!editing.value.trim()) return "Value is required";
+    if (editing.target === "ip") {
+      const parts = editing.value.trim().split(".");
+      if (parts.length !== 4 || parts.some((p) => Number.isNaN(Number(p)) || Number(p) < 0 || Number(p) > 255)) {
+        return "Invalid IPv4 address";
+      }
+    }
+    if (editing.target === "cidr") {
+      const [ip, prefix] = editing.value.trim().split("/");
+      if (!ip || !prefix) return "Invalid CIDR (expected e.g. 10.0.0.0/8)";
+      const parts = ip.split(".");
+      if (parts.length !== 4 || parts.some((p) => Number.isNaN(Number(p)) || Number(p) < 0 || Number(p) > 255)) {
+        return "Invalid CIDR base address";
+      }
+      const n = Number(prefix);
+      if (Number.isNaN(n) || n < 0 || n > 32) return "Invalid CIDR prefix";
+    }
+    return null;
+  }
+
   async function handleUpdate(e: React.FormEvent) {
     e.preventDefault();
     if (!editing) return;
+    const error = validateEditingValue();
+    if (error) {
+      toast.error(error);
+      return;
+    }
     setSubmitting(true);
     try {
       await IronpassApi.updateSplitTunnelRule(
@@ -163,7 +218,11 @@ export default function SplitTunnelPage() {
                 <Label htmlFor="target-type">Target type</Label>
                 <Select
                   value={target}
-                  onValueChange={(v) => setTarget(v as SplitTunnelTarget)}
+                  onValueChange={(v) => {
+                    setTarget(v as SplitTunnelTarget);
+                    setValue("");
+                    if (formError) setFormError(null);
+                  }}
                 >
                   <SelectTrigger id="target-type">
                     <SelectValue />
@@ -181,9 +240,12 @@ export default function SplitTunnelPage() {
                 <Label htmlFor="target-value">Value</Label>
                 <Input
                   id="target-value"
-                  placeholder="example.com"
+                  placeholder={target === "ip" ? "1.2.3.4" : target === "cidr" ? "10.0.0.0/8" : "example.com"}
                   value={value}
-                  onChange={(e) => setValue(e.target.value)}
+                  onChange={(e) => {
+                    setValue(e.target.value);
+                    if (formError) setFormError(null);
+                  }}
                   required
                 />
               </div>
@@ -222,6 +284,9 @@ export default function SplitTunnelPage() {
                 </Select>
               </div>
             </div>
+            {formError && (
+              <p className="text-sm text-destructive">{formError}</p>
+            )}
             <Button type="submit" disabled={submitting}>
               Add rule
             </Button>
@@ -298,14 +363,14 @@ export default function SplitTunnelPage() {
                 <DialogDescription>Update the split tunnel rule.</DialogDescription>
               </DialogHeader>
               <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-target">Target type</Label>
-                  <Select
-                    value={editing.target}
-                    onValueChange={(v) =>
-                      setEditing({ ...editing, target: v as SplitTunnelTarget })
-                    }
-                  >
+              <div className="grid gap-2">
+                <Label htmlFor="edit-target">Target type</Label>
+                <Select
+                  value={editing.target}
+                  onValueChange={(v) =>
+                    setEditing({ ...editing, target: v as SplitTunnelTarget, value: "" })
+                  }
+                >
                     <SelectTrigger id="edit-target">
                       <SelectValue />
                     </SelectTrigger>
@@ -322,6 +387,7 @@ export default function SplitTunnelPage() {
                   <Label htmlFor="edit-value">Value</Label>
                   <Input
                     id="edit-value"
+                    placeholder={editing.target === "ip" ? "1.2.3.4" : editing.target === "cidr" ? "10.0.0.0/8" : "example.com"}
                     value={editing.value}
                     onChange={(e) =>
                       setEditing({ ...editing, value: e.target.value })

@@ -1245,6 +1245,7 @@ dependencies = [
  "chrono",
  "clap",
  "dirs",
+ "ipnet",
  "ironpass-api",
  "ironpass-api-client",
  "ironpass-backend",
@@ -1287,6 +1288,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "dirs",
  "ironpass-core",
  "serde",
  "serde_json",

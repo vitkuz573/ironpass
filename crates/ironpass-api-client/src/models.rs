@@ -119,6 +119,21 @@ pub struct HealthResponse {
     pub hwid: String,
 }
 
+/// Capabilities for a single proxy core backend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendCapability {
+    pub available: bool,
+    pub geo_assets_available: bool,
+    pub version: Option<String>,
+}
+
+/// Capabilities reported by the daemon for the installed proxy cores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendCapabilities {
+    pub xray: BackendCapability,
+    pub sing_box: BackendCapability,
+}
+
 /// Config response wrapping the existing application config.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigResponse {

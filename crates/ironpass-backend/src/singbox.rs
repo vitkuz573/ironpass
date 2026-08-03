@@ -1,5 +1,6 @@
 //! Generate sing-box JSON configuration from a `ProxyNode`.
 
+use crate::assets::GeoAssetStatus;
 use ironpass_core::models::{
     Protocol, ProxyNode, Security, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Transport,
 };
@@ -8,6 +9,20 @@ use serde_json::{Map, Value};
 
 #[cfg(test)]
 use ironpass_core::models::XhttpExtra;
+
+/// CIDR ranges that are private/local per RFC1918 / RFC4193 / RFC4291.
+const PRIVATE_CIDRS: &[&str] = &[
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "127.0.0.0/8",
+    "fc00::/7",
+    "fe80::/10",
+];
+
+/// Localhost-style domains that should bypass the proxy.
+const LOCALHOST_DOMAINS: &[&str] = &["localhost", "localhost.localdomain"];
+const LOCAL_SUFFIX: &str = ".local";
 
 const DEFAULT_MIXED_PORT: u16 = 11080;
 
@@ -68,10 +83,14 @@ impl Default for Route {
 }
 
 /// Generate a sing-box JSON config for `node` with the requested inbound ports.
+///
+/// `geo_status` controls whether geoip/geosite rules are emitted or a safe
+/// RFC1918/local fallback is used.
 pub fn generate_config(
     node: &ProxyNode,
     ports: InboundPorts,
     rules: &[SplitTunnelRule],
+    geo_status: GeoAssetStatus,
 ) -> anyhow::Result<SingBoxConfig> {
     let outbound = build_outbound(node)?;
 
@@ -105,7 +124,7 @@ pub fn generate_config(
         dns: Some(dns()),
         inbounds,
         outbounds: vec![outbound, direct_outbound(), block_outbound()],
-        route: build_route(rules),
+        route: build_route(rules, geo_status),
     };
 
     let json = serde_json::to_string_pretty(&root)?;
@@ -375,8 +394,28 @@ fn block_outbound() -> Value {
     })
 }
 
-fn build_route(rules: &[SplitTunnelRule]) -> Route {
-    let mut route_rules = Vec::with_capacity(rules.len());
+fn build_route(rules: &[SplitTunnelRule], geo_status: GeoAssetStatus) -> Route {
+    let mut route_rules = Vec::with_capacity(rules.len().saturating_add(2));
+    if geo_status.available {
+        route_rules.push(serde_json::json!({
+            "outbound": "direct",
+            "geoip": "private"
+        }));
+        route_rules.push(serde_json::json!({
+            "outbound": "block",
+            "geosite": "category-ads-all"
+        }));
+    } else {
+        route_rules.push(serde_json::json!({
+            "outbound": "direct",
+            "ip_cidr": PRIVATE_CIDRS
+        }));
+        route_rules.push(serde_json::json!({
+            "outbound": "direct",
+            "domain": LOCALHOST_DOMAINS,
+            "domain_suffix": [LOCAL_SUFFIX]
+        }));
+    }
     for rule in rules {
         let Some(value) = build_route_rule(rule) else {
             tracing::warn!("Skipping unsupported split tunnel rule: {:?}", rule);
@@ -471,7 +510,7 @@ mod tests {
     #[test]
     fn vless_reality_config_contains_outbound() {
         let node = sample_vless_reality();
-        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[], GeoAssetStatus::new(false)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds
@@ -507,6 +546,7 @@ mod tests {
                 ..Default::default()
             },
             &[],
+            GeoAssetStatus::new(false),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -546,6 +586,7 @@ mod tests {
                 mixed_port: None,
             },
             &[],
+            GeoAssetStatus::new(false),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -570,13 +611,13 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route = value.get("route").unwrap();
         let route_rules = route.get("rules").unwrap().as_array().unwrap();
-        assert_eq!(route_rules.len(), 1);
-        assert_eq!(route_rules[0].get("outbound").unwrap(), "direct");
-        let domains = route_rules[0].get("domain").unwrap().as_array().unwrap();
+        assert_eq!(route_rules.len(), 3);
+        assert_eq!(route_rules[2].get("outbound").unwrap(), "direct");
+        let domains = route_rules[2].get("domain").unwrap().as_array().unwrap();
         assert!(domains.iter().any(|d| d == "example.com"));
     }
 
@@ -590,11 +631,11 @@ mod tests {
             SplitTunnelAction::Proxy,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
-        assert_eq!(route_rules[0].get("outbound").unwrap(), "proxy");
-        assert_eq!(route_rules[0].get("domain_suffix").unwrap(), "example.com");
+        assert_eq!(route_rules[2].get("outbound").unwrap(), "proxy");
+        assert_eq!(route_rules[2].get("domain_suffix").unwrap(), "example.com");
     }
 
     #[test]
@@ -615,13 +656,13 @@ mod tests {
                 None,
             ),
         ];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
-        assert_eq!(route_rules.len(), 2);
-        let first = route_rules[0]["ip_cidr"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 4);
+        let first = route_rules[2]["ip_cidr"].as_array().unwrap();
         assert!(first.iter().any(|v| v == "1.2.3.4"));
-        let second = route_rules[1]["ip_cidr"].as_array().unwrap();
+        let second = route_rules[3]["ip_cidr"].as_array().unwrap();
         assert!(second.iter().any(|v| v == "10.0.0.0/8"));
     }
 
@@ -635,9 +676,49 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
-        assert!(route_rules.is_empty());
+        assert_eq!(route_rules.len(), 2);
+    }
+
+    #[test]
+    fn fallback_routing_uses_private_cidrs_and_localhost() {
+        let node = sample_vless_reality();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(false),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 2);
+        assert_eq!(route_rules[0].get("outbound").unwrap(), "direct");
+        let ips = route_rules[0]["ip_cidr"].as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "10.0.0.0/8"));
+        assert!(ips.iter().any(|v| v == "fc00::/7"));
+        let domains = route_rules[1]["domain"].as_array().unwrap();
+        assert!(domains.iter().any(|v| v == "localhost"));
+    }
+
+    #[test]
+    fn geo_routing_uses_geoip_and_geosite() {
+        let node = sample_vless_reality();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(true),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 2);
+        assert_eq!(route_rules[0].get("outbound").unwrap(), "direct");
+        assert!(route_rules[0].get("geoip").is_some());
+        assert_eq!(route_rules[1].get("outbound").unwrap(), "block");
+        assert!(route_rules[1].get("geosite").is_some());
     }
 }

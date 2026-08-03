@@ -1,5 +1,6 @@
 //! Generate Xray-core JSON configuration from a `ProxyNode`.
 
+use crate::assets::GeoAssetStatus;
 use ironpass_core::models::{
     Protocol, ProxyNode, Security, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
     Transport, XhttpExtra,
@@ -7,51 +8,28 @@ use ironpass_core::models::{
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-const DEFAULT_MIXED_PORT: u16 = 11080;
+/// CIDR ranges that are private/local per RFC1918 / RFC4193 / RFC4291.
+const PRIVATE_CIDRS: &[&str] = &[
+    "10.0.0.0/8",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+    "127.0.0.0/8",
+    "fc00::/7",
+    "fe80::/10",
+];
 
-/// Generated Xray config along with exposed local ports.
-#[derive(Debug, Clone)]
-pub struct XrayConfig {
-    pub json: String,
-    pub socks_port: Option<u16>,
-    pub http_port: Option<u16>,
-    pub mixed_port: Option<u16>,
-}
-
-/// Port selection for proxy inbounds.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct InboundPorts {
-    pub socks_port: Option<u16>,
-    pub http_port: Option<u16>,
-    pub mixed_port: Option<u16>,
-}
-
-#[derive(Serialize)]
-struct XrayRoot {
-    log: Log,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    api: Option<Value>,
-    inbounds: Vec<Value>,
-    outbounds: Vec<Value>,
-    routing: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    policy: Option<Value>,
-}
-
-#[derive(Serialize)]
-struct Log {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    access: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-    loglevel: &'static str,
-}
+/// Localhost-style domains that should bypass the proxy.
+const LOCALHOST_DOMAINS: &[&str] = &["localhost", "localhost.localdomain", "regexp:.*\\.local$"];
 
 /// Generate an Xray-core JSON config for `node` with the requested inbound ports.
+///
+/// `geo_status` controls whether geoip/geosite rules are emitted or a safe
+/// RFC1918/local fallback is used.
 pub fn generate_config(
     node: &ProxyNode,
     ports: InboundPorts,
     rules: &[SplitTunnelRule],
+    geo_status: GeoAssetStatus,
 ) -> anyhow::Result<XrayConfig> {
     let outbound = build_outbound(node)?;
 
@@ -94,7 +72,7 @@ pub fn generate_config(
         api: Some(api),
         inbounds,
         outbounds: vec![outbound, direct_outbound(), block_outbound()],
-        routing: routing(rules),
+        routing: routing(rules, geo_status),
         policy: Some(policy),
     };
 
@@ -106,6 +84,47 @@ pub fn generate_config(
         mixed_port,
     })
 }
+
+const DEFAULT_MIXED_PORT: u16 = 11080;
+
+/// Generated Xray config along with exposed local ports.
+#[derive(Debug, Clone)]
+pub struct XrayConfig {
+    pub json: String,
+    pub socks_port: Option<u16>,
+    pub http_port: Option<u16>,
+    pub mixed_port: Option<u16>,
+}
+
+/// Port selection for proxy inbounds.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct InboundPorts {
+    pub socks_port: Option<u16>,
+    pub http_port: Option<u16>,
+    pub mixed_port: Option<u16>,
+}
+
+#[derive(Serialize)]
+struct XrayRoot {
+    log: Log,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    api: Option<Value>,
+    inbounds: Vec<Value>,
+    outbounds: Vec<Value>,
+    routing: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    policy: Option<Value>,
+}
+
+#[derive(Serialize)]
+struct Log {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    access: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    loglevel: &'static str,
+}
+
 
 fn build_outbound(node: &ProxyNode) -> anyhow::Result<Value> {
     match node.protocol {
@@ -401,11 +420,31 @@ fn block_outbound() -> Value {
     })
 }
 
-fn routing(rules: &[SplitTunnelRule]) -> Value {
-    let mut rule_values = vec![
-        serde_json::json!({ "type": "field", "outboundTag": "direct", "ip": ["geoip:private"] }),
-        serde_json::json!({ "type": "field", "outboundTag": "block", "domain": ["geosite:category-ads-all"] }),
-    ];
+fn routing(rules: &[SplitTunnelRule], geo_status: GeoAssetStatus) -> Value {
+    let mut rule_values = Vec::new();
+    if geo_status.available {
+        rule_values.push(serde_json::json!({
+            "type": "field",
+            "outboundTag": "direct",
+            "ip": ["geoip:private"]
+        }));
+        rule_values.push(serde_json::json!({
+            "type": "field",
+            "outboundTag": "block",
+            "domain": ["geosite:category-ads-all"]
+        }));
+    } else {
+        rule_values.push(serde_json::json!({
+            "type": "field",
+            "outboundTag": "direct",
+            "ip": PRIVATE_CIDRS
+        }));
+        rule_values.push(serde_json::json!({
+            "type": "field",
+            "outboundTag": "direct",
+            "domain": LOCALHOST_DOMAINS
+        }));
+    }
     for rule in rules {
         let Some(value) = build_routing_rule(rule) else {
             tracing::warn!(
@@ -517,7 +556,7 @@ mod tests {
     #[test]
     fn vless_reality_config_contains_outbound() {
         let node = sample_vless_reality();
-        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[], GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds
@@ -557,6 +596,7 @@ mod tests {
                 ..Default::default()
             },
             &[],
+            GeoAssetStatus::new(true),
         )
         .unwrap();
 
@@ -591,7 +631,7 @@ mod tests {
         node.service_name = Some("MyService".into());
         node.sni = Some("sni.example.com".into());
 
-        let cfg = generate_config(&node, InboundPorts::default(), &[]).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &[], GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds
@@ -621,7 +661,7 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let routing_rules = value["routing"]["rules"].as_array().unwrap();
         // default geoip:private + geosite:ads + 1 custom rule
@@ -630,6 +670,46 @@ mod tests {
         assert_eq!(rule.get("outboundTag").unwrap(), "direct");
         let domains = rule.get("domain").unwrap().as_array().unwrap();
         assert!(domains.iter().any(|d| d == "example.com"));
+    }
+
+    #[test]
+    fn fallback_routing_uses_private_cidrs_and_localhost() {
+        let node = sample_vless_reality();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(false),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        assert_eq!(routing_rules.len(), 2);
+        assert_eq!(routing_rules[0].get("outboundTag").unwrap(), "direct");
+        let ips = routing_rules[0]["ip"].as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "10.0.0.0/8"));
+        assert!(ips.iter().any(|v| v == "fc00::/7"));
+        let domains = routing_rules[1]["domain"].as_array().unwrap();
+        assert!(domains.iter().any(|v| v == "localhost"));
+    }
+
+    #[test]
+    fn geo_routing_uses_geoip_and_geosite() {
+        let node = sample_vless_reality();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(true),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let routing_rules = value["routing"]["rules"].as_array().unwrap();
+        assert_eq!(routing_rules.len(), 2);
+        let ips = routing_rules[0]["ip"].as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "geoip:private"));
+        let domains = routing_rules[1]["domain"].as_array().unwrap();
+        assert!(domains.iter().any(|v| v == "geosite:category-ads-all"));
     }
 
     #[test]
@@ -642,7 +722,7 @@ mod tests {
             SplitTunnelAction::Proxy,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let routing_rules = value["routing"]["rules"].as_array().unwrap();
         let rule = &routing_rules[2];
@@ -669,7 +749,7 @@ mod tests {
                 None,
             ),
         ];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let routing_rules = value["routing"]["rules"].as_array().unwrap();
         let first = &routing_rules[2];
@@ -692,7 +772,7 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules).unwrap();
+        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(true)).unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let routing_rules = value["routing"]["rules"].as_array().unwrap();
         assert_eq!(routing_rules.len(), 2);

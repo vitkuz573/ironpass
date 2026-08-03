@@ -3,8 +3,10 @@
 use crate::db::DbPool;
 use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
 use ironpass_backend::{
-    BackendRegistry, BackendType, CoreProcessManager, CoreType, GeneratedConfig, ProxyPorts,
+    BackendCapability, BackendCapabilities, BackendRegistry, BackendType, CoreProcessManager,
+    CoreType, GeneratedConfig, ProxyPorts, detect_geo_assets, locate_core_binary,
 };
+use std::process::Command;
 use ironpass_config::{AppConfig, ConfigManager};
 use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Subscription};
 use ironpass_core::traits::HwidProvider;
@@ -40,6 +42,9 @@ impl AppState {
         xray_path: Option<PathBuf>,
     ) -> Self {
         let selected_node = db.get_selected_node_id().unwrap_or(None);
+        let backend_registry = BackendRegistry::new();
+        backend_registry.refresh_geo_assets();
+        let _caps = backend_registry.xray_geo_status();
         Self {
             http_client: Client::builder()
                 .timeout(Duration::from_secs(30))
@@ -55,7 +60,7 @@ impl AppState {
             split_tunnel_rules: Arc::new(RwLock::new(Vec::new())),
             start_time: Instant::now(),
             xray_path: Arc::new(RwLock::new(xray_path)),
-            backend_registry: Arc::new(BackendRegistry::new()),
+            backend_registry: Arc::new(backend_registry),
             preferred_backend: Arc::new(RwLock::new(BackendType::Auto)),
         }
     }
@@ -64,6 +69,36 @@ impl AppState {
     pub async fn set_preferred_backend(&self, backend_type: BackendType) {
         let mut guard = self.preferred_backend.write().await;
         *guard = backend_type;
+    }
+
+    /// Refresh backend binary availability and geo asset status from disk.
+    pub async fn refresh_backend_capabilities(&self) {
+        self.backend_registry.refresh_geo_assets();
+    }
+
+    /// Return the current backend capabilities.
+    pub async fn backend_capabilities(&self) -> BackendCapabilities {
+        let xray_path = self.xray_path.read().await.clone();
+        let xray_bin = locate_core_binary(&["xray", "xray.exe"], xray_path.as_deref());
+        let xray_geo = detect_geo_assets(xray_bin.as_deref());
+        let xray_version = xray_bin.as_deref().and_then(core_version);
+
+        let sing_box_bin = locate_core_binary(&["sing-box", "sing-box.exe", "sb"], None);
+        let sing_box_geo = detect_geo_assets(sing_box_bin.as_deref());
+        let sing_box_version = sing_box_bin.as_deref().and_then(core_version);
+
+        BackendCapabilities {
+            xray: BackendCapability {
+                available: xray_bin.is_some(),
+                geo_assets_available: xray_geo.available,
+                version: xray_version,
+            },
+            sing_box: BackendCapability {
+                available: sing_box_bin.is_some(),
+                geo_assets_available: sing_box_geo.available,
+                version: sing_box_version,
+            },
+        }
     }
 
     /// Resolve a backend type to a concrete backend.
@@ -268,6 +303,7 @@ impl AppState {
         if value.trim().is_empty() {
             anyhow::bail!("Rule value cannot be empty");
         }
+        validate_split_tunnel_rule(target, &value)?;
         let rule = SplitTunnelRule::new(target, value, action, node_id);
         self.db.insert_split_tunnel_rule(&rule)?;
         let mut guard = self.split_tunnel_rules.write().await;
@@ -286,6 +322,7 @@ impl AppState {
         if value.trim().is_empty() {
             anyhow::bail!("Rule value cannot be empty");
         }
+        validate_split_tunnel_rule(target, &value)?;
         let existing = self
             .db
             .get_split_tunnel_rule(id)?
@@ -382,7 +419,10 @@ impl AppState {
         let backend_type = req.backend.unwrap_or(BackendType::Auto);
         let (_resolved_type, backend) = self.resolve_backend(backend_type, &node.node).await?;
         if !backend.supports(&node.node) {
-            anyhow::bail!("Selected backend does not support this node");
+            return Err(crate::error::ApiError::BadRequest(
+                "Selected backend does not support this node".into(),
+            )
+            .into());
         }
 
         let rules = self.split_tunnel_rules.read().await.clone();
@@ -430,4 +470,27 @@ impl AppState {
         drop(ports);
         self.proxy_status().await
     }
+}
+
+fn core_version(path: &std::path::Path) -> Option<String> {
+    let output = Command::new(path).arg("version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = stdout.lines().next()?;
+    Some(line.trim().to_string())
+}
+
+fn validate_split_tunnel_rule(target: SplitTunnelTarget, value: &str) -> anyhow::Result<()> {
+    match target {
+        SplitTunnelTarget::Ip if value.parse::<std::net::IpAddr>().is_err() => {
+            anyhow::bail!("Invalid IP address: {value}");
+        }
+        SplitTunnelTarget::Cidr if value.parse::<ipnet::IpNet>().is_err() => {
+            anyhow::bail!("Invalid CIDR: {value}");
+        }
+        _ => {}
+    }
+    Ok(())
 }

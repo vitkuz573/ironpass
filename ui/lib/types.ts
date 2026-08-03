@@ -95,6 +95,17 @@ export interface HealthResponse {
   hwid: string;
 }
 
+export interface BackendCapability {
+  available: boolean;
+  geo_assets_available: boolean;
+  version?: string | null;
+}
+
+export interface BackendCapabilities {
+  xray: BackendCapability;
+  sing_box: BackendCapability;
+}
+
 export interface ConfigResponse {
   config: AppConfig;
 }

@@ -21,13 +21,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Play, Square, Server } from "lucide-react";
+import { Play, Square, Server, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
+import type { BackendCapabilities } from "@/lib/types";
 
 export default function ProxyPage() {
   const [status, setStatus] = useState<ProxyStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [capabilities, setCapabilities] = useState<BackendCapabilities | null>(null);
 
   const [nodeId] = useState<string>("");
   const [socksPort, setSocksPort] = useState<string>("");
@@ -38,8 +40,12 @@ export default function ProxyPage() {
   const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
-      const s = await IronpassApi.proxyStatus();
+      const [s, caps] = await Promise.all([
+        IronpassApi.proxyStatus(),
+        IronpassApi.backendCapabilities(),
+      ]);
       setStatus(s);
+      setCapabilities(caps);
       setSocksPort(s.socks_port?.toString() ?? "");
       setHttpPort(s.http_port?.toString() ?? "");
       setMixedPort(s.mixed_port?.toString() ?? "");
@@ -54,9 +60,13 @@ export default function ProxyPage() {
   useEffect(() => {
     fetchStatus();
     const interval = setInterval(() => {
-      IronpassApi.proxyStatus()
-        .then((s) => {
+      Promise.all([
+        IronpassApi.proxyStatus(),
+        IronpassApi.backendCapabilities(),
+      ])
+        .then(([s, caps]) => {
           setStatus(s);
+          setCapabilities(caps);
           setSocksPort(s.socks_port?.toString() ?? "");
           setHttpPort(s.http_port?.toString() ?? "");
           setMixedPort(s.mixed_port?.toString() ?? "");
@@ -121,7 +131,7 @@ export default function ProxyPage() {
       {loading ? (
         <Skeleton className="h-40 w-full" />
       ) : status ? (
-        <StatusCard status={status} />
+        <StatusCard status={status} capabilities={capabilities} />
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -237,14 +247,32 @@ export default function ProxyPage() {
   );
 }
 
-function StatusCard({ status }: { status: ProxyStatus }) {
+function StatusCard({
+  status,
+  capabilities,
+}: {
+  status: ProxyStatus;
+  capabilities: BackendCapabilities | null;
+}) {
+  const selectedBackend = status.backend ?? "auto";
+  const selectedWarning =
+    selectedBackend === "xray" && capabilities && !capabilities.xray.geo_assets_available
+      ? "Geo assets missing: Xray will use RFC1918/local fallback rules."
+      : null;
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Live status</CardTitle>
         <CardDescription>Current proxy runtime information.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="space-y-4">
+        {selectedWarning && (
+          <div className="flex items-start gap-2 rounded-md border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-800 dark:border-yellow-900 dark:bg-yellow-950 dark:text-yellow-200">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+            <span>{selectedWarning}</span>
+          </div>
+        )}
         <dl className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-xs font-medium text-muted-foreground">State</dt>
@@ -293,8 +321,63 @@ function StatusCard({ status }: { status: ProxyStatus }) {
             </div>
           )}
         </dl>
+        {capabilities && (
+          <div className="border-t pt-4">
+            <h4 className="mb-2 text-sm font-semibold">Backend capabilities</h4>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <CapabilityRow
+                label="Xray"
+                capability={capabilities.xray}
+              />
+              <CapabilityRow
+                label="sing-box"
+                capability={capabilities.sing_box}
+              />
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function CapabilityRow({
+  label,
+  capability,
+}: {
+  label: string;
+  capability: BackendCapabilities["xray"];
+}) {
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 text-sm">
+        <span className="font-medium">{label}</span>
+        <span
+          className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs ${
+            capability.available
+              ? "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-100"
+              : "bg-muted text-muted-foreground"
+          }`}
+        >
+          {capability.available ? "Available" : "Unavailable"}
+        </span>
+      </div>
+      {capability.available && (
+        <div className="text-xs text-muted-foreground">
+          {!capability.geo_assets_available && (
+            <span className="text-yellow-600 dark:text-yellow-400">
+              Geo assets missing
+            </span>
+          )}
+          {capability.geo_assets_available && capability.version && (
+            <span>{capability.version}</span>
+          )}
+          {!capability.geo_assets_available && capability.version && (
+            <span> · {capability.version}</span>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

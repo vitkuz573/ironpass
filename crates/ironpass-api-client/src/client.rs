@@ -2,9 +2,9 @@
 
 use crate::error::ApiClientError;
 use crate::models::{
-    AddSplitTunnelRuleRequest, AddSubscriptionRequest, ConfigResponse, HealthResponse,
-    HwidResponse, NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription,
-    SubscriptionDetail,
+    AddSplitTunnelRuleRequest, AddSubscriptionRequest, BackendCapabilities, ConfigResponse,
+    HealthResponse, HwidResponse, NodeWithSubscription, ProxyStatus, StartProxyRequest,
+    StoredSubscription, SubscriptionDetail,
 };
 use ironpass_config::AppConfig;
 use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget};
@@ -205,6 +205,11 @@ impl ApiClient {
         id: Uuid,
     ) -> Result<serde_json::Value, ApiClientError> {
         self.delete(&format!("/api/v1/split-tunnel/{id}")).await
+    }
+
+    /// Get backend capabilities.
+    pub async fn backend_capabilities(&self) -> Result<BackendCapabilities, ApiClientError> {
+        self.get("/api/v1/backend/capabilities").await
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiClientError> {

@@ -9,6 +9,7 @@ pub mod subscriptions;
 
 use crate::error::ApiError;
 use crate::models::HealthResponse;
+use ironpass_backend::BackendCapabilities;
 use crate::state::AppState;
 use axum::{
     Router,
@@ -21,6 +22,7 @@ use std::sync::Arc;
 pub fn router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/api/v1/health", get(health))
+        .route("/api/v1/backend/capabilities", get(backend_capabilities))
         .route(
             "/api/v1/config",
             get(config::get_config).put(config::put_config),
@@ -65,4 +67,10 @@ async fn health(State(state): State<Arc<AppState>>) -> Result<Json<HealthRespons
         uptime_secs: state.start_time.elapsed().as_secs(),
         hwid,
     }))
+}
+
+async fn backend_capabilities(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<BackendCapabilities>, ApiError> {
+    Ok(Json(state.backend_capabilities().await))
 }

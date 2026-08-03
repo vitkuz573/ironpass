@@ -4,11 +4,28 @@
 //! Xray-core generators, plus a registry that resolves [`BackendType`] choices
 //! (including `Auto`) to a concrete backend instance.
 
+use crate::assets::{GeoAssetStatus, detect_geo_assets, locate_core_binary};
 use crate::core_process::CoreType;
 use crate::singbox::generate_config as generate_singbox_config;
 use crate::xray::generate_config as generate_xray_config;
 use ironpass_core::models::{Protocol, ProxyNode, Security, SplitTunnelRule, Transport};
 use serde::{Deserialize, Serialize};
+
+/// Capabilities for a single proxy core backend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendCapability {
+    pub available: bool,
+    pub geo_assets_available: bool,
+    pub version: Option<String>,
+}
+
+/// Capabilities reported by the daemon for the installed proxy cores.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendCapabilities {
+    pub xray: BackendCapability,
+    pub sing_box: BackendCapability,
+}
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// User-selectable backend type.
@@ -80,12 +97,28 @@ pub trait Backend: Send + Sync {
 
     /// Return true if this backend can generate a working config for `node`.
     fn supports(&self, node: &ProxyNode) -> bool;
+
+    /// Update the backend's view of available geo assets.
+    fn set_geo_asset_status(&mut self, _status: GeoAssetStatus) {}
+
+    /// Return the configured geo asset status, if any.
+    fn geo_asset_status(&self) -> Option<GeoAssetStatus> {
+        None
+    }
+
+    /// Return the explicit binary path, if set.
+    fn binary_path(&self) -> Option<&PathBuf> {
+        None
+    }
+
+    /// Set the explicit binary path.
+    fn set_binary_path(&mut self, _path: Option<PathBuf>) {}
 }
 
 /// Registry holding the available backend implementations.
 pub struct BackendRegistry {
-    sing_box: Arc<dyn Backend>,
-    xray: Arc<dyn Backend>,
+    sing_box: Arc<RwLock<SingBoxBackend>>,
+    xray: Arc<RwLock<XrayBackend>>,
 }
 
 impl Default for BackendRegistry {
@@ -98,8 +131,42 @@ impl BackendRegistry {
     /// Create a registry with the default sing-box and Xray backends.
     pub fn new() -> Self {
         Self {
-            sing_box: Arc::new(SingBoxBackend),
-            xray: Arc::new(XrayBackend),
+            sing_box: Arc::new(RwLock::new(SingBoxBackend::new())),
+            xray: Arc::new(RwLock::new(XrayBackend::new())),
+        }
+    }
+
+    /// Return the current geo asset status for the Xray backend.
+    pub fn xray_geo_status(&self) -> GeoAssetStatus {
+        self.xray
+            .read()
+            .unwrap()
+            .geo_asset_status()
+            .unwrap_or(GeoAssetStatus::new(true))
+    }
+
+    /// Return the current geo asset status for the sing-box backend.
+    pub fn sing_box_geo_status(&self) -> GeoAssetStatus {
+        self.sing_box
+            .read()
+            .unwrap()
+            .geo_asset_status()
+            .unwrap_or(GeoAssetStatus::new(false))
+    }
+
+    /// Refresh geo asset availability for both backends from disk.
+    pub fn refresh_geo_assets(&self) {
+        let xray_path = self.xray.read().unwrap().binary_path().cloned();
+        if let Some(path) = locate_core_binary(&["xray", "xray.exe"], xray_path.as_deref()) {
+            let status = detect_geo_assets(Some(&path));
+            self.xray.write().unwrap().set_geo_asset_status(status);
+        }
+        let sing_box_path = self.sing_box.read().unwrap().binary_path().cloned();
+        if let Some(path) =
+            locate_core_binary(&["sing-box", "sing-box.exe", "sb"], sing_box_path.as_deref())
+        {
+            let status = detect_geo_assets(Some(&path));
+            self.sing_box.write().unwrap().set_geo_asset_status(status);
         }
     }
 
@@ -109,21 +176,135 @@ impl BackendRegistry {
     /// otherwise.
     pub fn resolve(&self, backend_type: BackendType, node: &ProxyNode) -> Arc<dyn Backend> {
         match backend_type {
-            BackendType::SingBox => Arc::clone(&self.sing_box),
-            BackendType::Xray => Arc::clone(&self.xray),
+            BackendType::SingBox => Arc::new(BackendSnapshot::from(&*self.sing_box.read().unwrap())),
+            BackendType::Xray => Arc::new(BackendSnapshot::from(&*self.xray.read().unwrap())),
             BackendType::Auto => {
-                if self.xray.supports(node) {
-                    Arc::clone(&self.xray)
+                if self.xray.read().unwrap().supports(node) {
+                    Arc::new(BackendSnapshot::from(&*self.xray.read().unwrap()))
                 } else {
-                    Arc::clone(&self.sing_box)
+                    Arc::new(BackendSnapshot::from(&*self.sing_box.read().unwrap()))
                 }
             }
         }
     }
 }
 
+use std::sync::RwLock;
+
+/// A serializable backend snapshot with current geo asset status.
+#[derive(Clone)]
+pub struct BackendSnapshot {
+    core: CoreType,
+    geo: GeoAssetStatus,
+}
+
+impl BackendSnapshot {
+    pub fn geo_asset_status(&self) -> GeoAssetStatus {
+        self.geo
+    }
+}
+
+impl Backend for BackendSnapshot {
+    fn generate_config(
+        &self,
+        node: &ProxyNode,
+        ports: ProxyPorts,
+        rules: &[SplitTunnelRule],
+    ) -> anyhow::Result<GeneratedConfig> {
+        match self.core {
+            CoreType::SingBox => {
+                let cfg = generate_singbox_config(
+                    node,
+                    crate::singbox::InboundPorts {
+                        socks_port: ports.socks,
+                        http_port: ports.http,
+                        mixed_port: ports.mixed,
+                    },
+                    rules,
+                    self.geo,
+                )?;
+                Ok(GeneratedConfig {
+                    json: cfg.json,
+                    socks_port: cfg.socks_port,
+                    http_port: cfg.http_port,
+                    mixed_port: cfg.mixed_port,
+                })
+            }
+            CoreType::Xray => {
+                let cfg = generate_xray_config(
+                    node,
+                    crate::xray::InboundPorts {
+                        socks_port: ports.socks,
+                        http_port: ports.http,
+                        mixed_port: ports.mixed,
+                    },
+                    rules,
+                    self.geo,
+                )?;
+                Ok(GeneratedConfig {
+                    json: cfg.json,
+                    socks_port: cfg.socks_port,
+                    http_port: cfg.http_port,
+                    mixed_port: cfg.mixed_port,
+                })
+            }
+        }
+    }
+
+    fn core_type(&self) -> CoreType {
+        self.core
+    }
+
+    fn supports(&self, node: &ProxyNode) -> bool {
+        match self.core {
+            CoreType::SingBox => supports_singbox(node),
+            CoreType::Xray => supports_xray(node),
+        }
+    }
+
+    fn geo_asset_status(&self) -> Option<GeoAssetStatus> {
+        Some(self.geo)
+    }
+}
+
+impl From<&SingBoxBackend> for BackendSnapshot {
+    fn from(backend: &SingBoxBackend) -> Self {
+        Self {
+            core: CoreType::SingBox,
+            geo: backend.geo_asset_status().unwrap_or(GeoAssetStatus::new(false)),
+        }
+    }
+}
+
+impl From<&XrayBackend> for BackendSnapshot {
+    fn from(backend: &XrayBackend) -> Self {
+        Self {
+            core: CoreType::Xray,
+            geo: backend.geo_asset_status().unwrap_or(GeoAssetStatus::new(true)),
+        }
+    }
+}
+
 /// Sing-box backend wrapper.
-pub struct SingBoxBackend;
+pub struct SingBoxBackend {
+    geo: GeoAssetStatus,
+    path: Option<PathBuf>,
+}
+
+impl SingBoxBackend {
+    pub fn new() -> Self {
+        Self {
+            geo: GeoAssetStatus::new(false),
+            path: None,
+        }
+    }
+}
+
+impl Default for SingBoxBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Backend for SingBoxBackend {
     fn generate_config(
@@ -140,6 +321,7 @@ impl Backend for SingBoxBackend {
                 mixed_port: ports.mixed,
             },
             rules,
+            self.geo,
         )?;
         Ok(GeneratedConfig {
             json: cfg.json,
@@ -156,10 +338,44 @@ impl Backend for SingBoxBackend {
     fn supports(&self, node: &ProxyNode) -> bool {
         supports_singbox(node)
     }
+
+    fn set_geo_asset_status(&mut self, status: GeoAssetStatus) {
+        self.geo = status;
+    }
+
+    fn geo_asset_status(&self) -> Option<GeoAssetStatus> {
+        Some(self.geo)
+    }
+
+    fn binary_path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
+    fn set_binary_path(&mut self, path: Option<PathBuf>) {
+        self.path = path;
+    }
 }
 
 /// Xray-core backend wrapper.
-pub struct XrayBackend;
+pub struct XrayBackend {
+    geo: GeoAssetStatus,
+    path: Option<PathBuf>,
+}
+
+impl XrayBackend {
+    pub fn new() -> Self {
+        Self {
+            geo: GeoAssetStatus::new(true),
+            path: None,
+        }
+    }
+}
+
+impl Default for XrayBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl Backend for XrayBackend {
     fn generate_config(
@@ -176,6 +392,7 @@ impl Backend for XrayBackend {
                 mixed_port: ports.mixed,
             },
             rules,
+            self.geo,
         )?;
         Ok(GeneratedConfig {
             json: cfg.json,
@@ -191,6 +408,22 @@ impl Backend for XrayBackend {
 
     fn supports(&self, node: &ProxyNode) -> bool {
         supports_xray(node)
+    }
+
+    fn set_geo_asset_status(&mut self, status: GeoAssetStatus) {
+        self.geo = status;
+    }
+
+    fn geo_asset_status(&self) -> Option<GeoAssetStatus> {
+        Some(self.geo)
+    }
+
+    fn binary_path(&self) -> Option<&PathBuf> {
+        self.path.as_ref()
+    }
+
+    fn set_binary_path(&mut self, path: Option<PathBuf>) {
+        self.path = path;
     }
 }
 

@@ -33,6 +33,7 @@ thiserror = { workspace = true }
 anyhow = { workspace = true }
 async-trait = { workspace = true }
 dirs = { workspace = true }
+ipnet = "2"
 
 [features]
 test-helpers = []

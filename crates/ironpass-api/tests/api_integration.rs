@@ -62,6 +62,21 @@ async fn health_returns_ok() {
 }
 
 #[tokio::test]
+async fn backend_capabilities_returns_ok() {
+    let state = test_state();
+    let response = app(state)
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/backend/capabilities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
 async fn config_round_trip() {
     let state = test_state();
     let router = app(state);

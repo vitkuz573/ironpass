@@ -2,6 +2,7 @@ import {
   type AddSubscriptionRequest,
   type AddSplitTunnelRuleRequest,
   type AppConfig,
+  type BackendCapabilities,
   type BackendType,
   type ConfigResponse,
   type HealthResponse,
@@ -91,6 +92,10 @@ async function del<T>(path: string): Promise<T> {
 export class IronpassApi {
   static health(): Promise<HealthResponse> {
     return get("/api/v1/health");
+  }
+
+  static backendCapabilities(): Promise<BackendCapabilities> {
+    return get("/api/v1/backend/capabilities");
   }
 
   static getConfig(): Promise<AppConfig> {
