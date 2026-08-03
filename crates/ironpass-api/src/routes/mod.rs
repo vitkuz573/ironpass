@@ -62,7 +62,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 #[utoipa::path(
     get,
     path = "/api/v1/health",
-    operation_id = "get_health",
+    operation_id = "health_check",
     tag = "System",
     responses(
         (status = 200, description = "Service is healthy", body = HealthResponse),
