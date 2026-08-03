@@ -10,9 +10,10 @@ use crate::singbox::generate_config as generate_singbox_config;
 use crate::xray::generate_config as generate_xray_config;
 use ironpass_core::models::{Protocol, ProxyNode, Security, SplitTunnelRule, Transport};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Capabilities for a single proxy core backend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BackendCapability {
     pub available: bool,
     pub geo_assets_available: bool,
@@ -20,7 +21,7 @@ pub struct BackendCapability {
 }
 
 /// Capabilities reported by the daemon for the installed proxy cores.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BackendCapabilities {
     pub xray: BackendCapability,
     pub sing_box: BackendCapability,
@@ -29,8 +30,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// User-selectable backend type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum BackendType {
     /// Automatically pick the best backend for the node.
     #[default]

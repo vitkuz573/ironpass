@@ -1,5 +1,6 @@
 mod db;
 mod error;
+mod openapi;
 mod routes;
 mod state;
 

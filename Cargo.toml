@@ -116,3 +116,7 @@ ironpass-backend = { path = "crates/ironpass-backend" }
 ironpass-api = { path = "crates/ironpass-api" }
 ironpass-api-client = { path = "crates/ironpass-api-client" }
 ironpass-cli = { path = "crates/ironpass-cli" }
+
+# OpenAPI generation
+utoipa = { version = "5.5", features = ["chrono", "uuid", "axum_extras", "yaml"] }
+utoipa-swagger-ui = { version = "9.0", features = ["axum"] }

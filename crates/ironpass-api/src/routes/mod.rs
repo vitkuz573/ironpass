@@ -9,14 +9,13 @@ pub mod subscriptions;
 
 use crate::error::ApiError;
 use crate::models::HealthResponse;
-use ironpass_backend::BackendCapabilities;
 use crate::state::AppState;
 use axum::{
-    Router,
+    Json, Router,
     extract::State,
-    response::Json,
     routing::{get, post, put},
 };
+use ironpass_backend::BackendCapabilities;
 use std::sync::Arc;
 
 pub fn router(state: Arc<AppState>) -> Router {
@@ -59,6 +58,16 @@ pub fn router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/// Health check endpoint.
+#[utoipa::path(
+    get,
+    path = "/api/v1/health",
+    tag = "System",
+    responses(
+        (status = 200, description = "Service is healthy", body = HealthResponse),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 async fn health(State(state): State<Arc<AppState>>) -> Result<Json<HealthResponse>, ApiError> {
     let hwid = state.hwid_provider.generate()?;
     Ok(Json(HealthResponse {
@@ -69,6 +78,16 @@ async fn health(State(state): State<Arc<AppState>>) -> Result<Json<HealthRespons
     }))
 }
 
+/// Get proxy backend capability information.
+#[utoipa::path(
+    get,
+    path = "/api/v1/backend/capabilities",
+    tag = "Backend",
+    responses(
+        (status = 200, description = "Backend capabilities", body = BackendCapabilities),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 async fn backend_capabilities(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<BackendCapabilities>, ApiError> {

@@ -6,10 +6,22 @@ use axum::{
     extract::{Path, Query, State},
 };
 use ironpass_core::models::SplitTunnelRule;
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
 
+/// List split tunnel rules, optionally filtered by node.
+#[utoipa::path(
+    get,
+    path = "/api/v1/split-tunnel",
+    tag = "Split Tunnel",
+    params(("node" = Option<Uuid>, Query, description = "Optional node ID filter")),
+    responses(
+        (status = 200, description = "List of rules", body = [SplitTunnelRule]),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn list(
     State(state): State<Arc<AppState>>,
     Query(query): Query<HashMap<String, String>>,
@@ -18,6 +30,18 @@ pub async fn list(
     Ok(Json(state.list_split_tunnel_rules(node_id).await?))
 }
 
+/// Add a new split tunnel rule.
+#[utoipa::path(
+    post,
+    path = "/api/v1/split-tunnel",
+    tag = "Split Tunnel",
+    request_body = AddSplitTunnelRuleRequest,
+    responses(
+        (status = 200, description = "Rule created", body = SplitTunnelRule),
+        (status = 400, description = "Invalid rule"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn add(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AddSplitTunnelRuleRequest>,
@@ -28,6 +52,18 @@ pub async fn add(
     Ok(Json(rule))
 }
 
+/// Get a single split tunnel rule.
+#[utoipa::path(
+    get,
+    path = "/api/v1/split-tunnel/{id}",
+    tag = "Split Tunnel",
+    params(("id" = Uuid, Path, description = "Rule ID")),
+    responses(
+        (status = 200, description = "Rule details", body = SplitTunnelRule),
+        (status = 404, description = "Rule not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn get(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -39,6 +75,20 @@ pub async fn get(
     Ok(Json(rule))
 }
 
+/// Update a split tunnel rule.
+#[utoipa::path(
+    put,
+    path = "/api/v1/split-tunnel/{id}",
+    tag = "Split Tunnel",
+    params(("id" = Uuid, Path, description = "Rule ID")),
+    request_body = UpdateSplitTunnelRuleRequest,
+    responses(
+        (status = 200, description = "Rule updated", body = SplitTunnelRule),
+        (status = 400, description = "Invalid rule"),
+        (status = 404, description = "Rule not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn update(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -50,6 +100,18 @@ pub async fn update(
     Ok(Json(rule))
 }
 
+/// Delete a split tunnel rule.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/split-tunnel/{id}",
+    tag = "Split Tunnel",
+    params(("id" = Uuid, Path, description = "Rule ID")),
+    responses(
+        (status = 200, description = "Rule deleted", body = serde_json::Value),
+        (status = 404, description = "Rule not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -59,5 +121,5 @@ pub async fn delete(
             "Split tunnel rule {id} not found"
         )));
     }
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(json!({ "deleted": true })))
 }

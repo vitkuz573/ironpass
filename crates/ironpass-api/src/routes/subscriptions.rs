@@ -1,20 +1,44 @@
 use crate::error::ApiError;
-use crate::models::{AddSubscriptionRequest, StoredSubscription};
+use crate::models::{AddSubscriptionRequest, NodeWithSubscription, StoredSubscription};
 use crate::state::AppState;
 use axum::{
     Json,
     extract::{Path, Query, State},
 };
+use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
+/// List all stored subscriptions.
+#[utoipa::path(
+    get,
+    path = "/api/v1/subscriptions",
+    tag = "Subscriptions",
+    responses(
+        (status = 200, description = "List of subscriptions", body = [StoredSubscription]),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn list(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<StoredSubscription>>, ApiError> {
     Ok(Json(state.list_subscriptions().await?))
 }
 
+/// Add a new subscription.
+#[utoipa::path(
+    post,
+    path = "/api/v1/subscriptions",
+    tag = "Subscriptions",
+    request_body = AddSubscriptionRequest,
+    responses(
+        (status = 200, description = "Subscription created", body = StoredSubscription),
+        (status = 400, description = "Invalid request or duplicate subscription"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn add(
     State(state): State<Arc<AppState>>,
     Json(req): Json<AddSubscriptionRequest>,
@@ -23,6 +47,18 @@ pub async fn add(
     Ok(Json(sub))
 }
 
+/// Get a single subscription with its nodes.
+#[utoipa::path(
+    get,
+    path = "/api/v1/subscriptions/{id}",
+    tag = "Subscriptions",
+    params(("id" = Uuid, Path, description = "Subscription ID")),
+    responses(
+        (status = 200, description = "Subscription details", body = SubscriptionDetail),
+        (status = 404, description = "Subscription not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn get(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -38,6 +74,18 @@ pub async fn get(
     }))
 }
 
+/// Delete a subscription.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/subscriptions/{id}",
+    tag = "Subscriptions",
+    params(("id" = Uuid, Path, description = "Subscription ID")),
+    responses(
+        (status = 200, description = "Subscription deleted", body = serde_json::Value),
+        (status = 404, description = "Subscription not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn delete(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -45,9 +93,24 @@ pub async fn delete(
     if !state.delete_subscription(id).await? {
         return Err(ApiError::NotFound(format!("Subscription {id} not found")));
     }
-    Ok(Json(serde_json::json!({ "deleted": true })))
+    Ok(Json(json!({ "deleted": true })))
 }
 
+/// Fetch/reload a subscription from its source URL.
+#[utoipa::path(
+    put,
+    path = "/api/v1/subscriptions/{id}/fetch",
+    tag = "Subscriptions",
+    params(
+        ("id" = Uuid, Path, description = "Subscription ID"),
+        ("hwid" = Option<String>, Query, description = "Optional HWID override"),
+    ),
+    responses(
+        (status = 200, description = "Subscription refreshed", body = SubscriptionDetail),
+        (status = 404, description = "Subscription not found"),
+        (status = 500, description = "Internal server error"),
+    )
+)]
 pub async fn fetch(
     State(state): State<Arc<AppState>>,
     Path(id): Path<Uuid>,
@@ -70,8 +133,9 @@ pub async fn fetch(
     }))
 }
 
-#[derive(serde::Serialize)]
+/// Detailed subscription response including its nodes.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, ToSchema)]
 pub struct SubscriptionDetail {
-    subscription: StoredSubscription,
-    nodes: Vec<crate::models::NodeWithSubscription>,
+    pub subscription: StoredSubscription,
+    pub nodes: Vec<NodeWithSubscription>,
 }

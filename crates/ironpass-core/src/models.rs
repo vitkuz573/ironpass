@@ -3,10 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use strum::{Display, EnumString};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Display, EnumString)]
+/// Network protocol used by a proxy node.
+#[derive(
+    Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Display, EnumString, ToSchema,
+)]
 #[strum(serialize_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum Protocol {
     Vless,
     Vmess,
@@ -18,8 +23,10 @@ pub enum Protocol {
     AnyTls,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Display, EnumString)]
+/// Transport layer used by a proxy node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Display, EnumString, ToSchema)]
 #[strum(serialize_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum Transport {
     Tcp,
     Ws,
@@ -30,8 +37,10 @@ pub enum Transport {
     Kcp,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Display, EnumString)]
+/// Security layer used by a proxy node.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Display, EnumString, ToSchema)]
 #[strum(serialize_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum Security {
     None,
     Tls,
@@ -40,8 +49,11 @@ pub enum Security {
 }
 
 /// Target type for a split tunnel rule.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum SplitTunnelTarget {
     /// Exact domain name.
     #[default]
@@ -55,8 +67,11 @@ pub enum SplitTunnelTarget {
 }
 
 /// Action for a split tunnel rule.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(
+    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema,
+)]
 #[serde(rename_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
 pub enum SplitTunnelAction {
     /// Bypass the proxy and route directly.
     #[default]
@@ -66,7 +81,7 @@ pub enum SplitTunnelAction {
 }
 
 /// A user-defined split tunnel (selective routing) rule.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 pub struct SplitTunnelRule {
     pub id: Uuid,
     pub target: SplitTunnelTarget,
@@ -98,7 +113,8 @@ impl SplitTunnelRule {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// A parsed proxy node from a subscription.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProxyNode {
     pub protocol: Protocol,
     pub name: String,
@@ -128,8 +144,9 @@ pub struct ProxyNode {
 }
 
 /// XHTTP transport extra settings carried in the `extra` query parameter.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "camelCase")]
+#[schema(rename_all = "camelCase")]
 pub struct XhttpExtra {
     /// XHTTP operating mode, e.g. `stream-up` or `packet-up`.
     pub mode: Option<String>,
@@ -181,7 +198,7 @@ impl ProxyNode {
 /// `profile-title`, `profile-update-interval`, `profile-web-page-url` and
 /// `announce`/`announces`. Values prefixed with `base64:` are decoded
 /// automatically. HTTP response headers take precedence over inline body values.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct SubscriptionMetadata {
     /// Human-readable profile title, if provided.
     pub profile_title: Option<String>,
@@ -199,7 +216,7 @@ pub struct SubscriptionMetadata {
 ///
 /// This is the output of [`crate::traits::SubscriptionFetcher::fetch`] and the main
 /// data structure consumed by the CLI for display and analysis.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct Subscription {
     /// Unique identifier assigned locally when the subscription is fetched.
     pub id: uuid::Uuid,
@@ -221,7 +238,8 @@ pub struct Subscription {
     pub metadata: SubscriptionMetadata,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Hardware/device identifier information.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HwidInfo {
     pub hwid: String,
     pub device_model: String,
@@ -231,7 +249,8 @@ pub struct HwidInfo {
     pub machine_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// Recognised subscription payload formats.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 pub enum SubscriptionFormat {
     Base64VlessList,
     ClashYaml,

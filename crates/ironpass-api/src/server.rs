@@ -1,7 +1,10 @@
 //! API server setup and application router.
 
+use crate::openapi::ApiDoc;
 use crate::state::AppState;
 use axum::{Router, http::Method};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use ironpass_config::ConfigManager;
 use ironpass_core::traits::HwidProvider;
 use std::net::SocketAddr;
@@ -15,7 +18,18 @@ pub fn app(state: Arc<AppState>) -> Router {
         .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
         .allow_origin(Any)
         .allow_headers(Any);
-    crate::routes::router(state).layer(cors)
+    let router = crate::routes::router(state);
+
+    let openapi_yaml = || async {
+        let yaml = ApiDoc::openapi().to_yaml().unwrap_or_default();
+        ([("content-type", "text/yaml")], yaml)
+    };
+
+    Router::new()
+        .route("/api-docs/openapi.yaml", axum::routing::get(openapi_yaml))
+        .merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
+        .merge(router)
+        .layer(cors)
 }
 
 /// Create default application state using XDG directories.

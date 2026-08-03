@@ -2,11 +2,13 @@ use ironpass_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use utoipa::ToSchema;
 
 const APP_NAME: &str = "ironpass";
 const CONFIG_FILE: &str = "config.toml";
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// Top-level application configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, ToSchema)]
 pub struct AppConfig {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -21,7 +23,8 @@ pub struct AppConfig {
     pub logging: LoggingConfig,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// General application settings.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct GeneralConfig {
     #[serde(default = "default_user_agent")]
     pub user_agent: String,
@@ -43,7 +46,8 @@ impl Default for GeneralConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Subscription fetching settings.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SubscriptionConfig {
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
@@ -69,7 +73,8 @@ impl Default for SubscriptionConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// HWID generation settings.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HwidConfig {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
@@ -90,7 +95,8 @@ impl Default for HwidConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Logging settings.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct LoggingConfig {
     #[serde(default = "default_log_level")]
     pub level: String,
@@ -98,7 +104,9 @@ pub struct LoggingConfig {
     #[serde(default = "default_log_file")]
     pub file: bool,
 
+    /// Path to the directory containing log files.
     #[serde(default)]
+    #[schema(value_type = Option<String>, format = "path")]
     pub log_dir: Option<PathBuf>,
 }
 

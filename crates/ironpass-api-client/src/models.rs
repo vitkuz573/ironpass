@@ -6,10 +6,11 @@ use ironpass_core::models::{
     HwidInfo, ProxyNode, SplitTunnelAction, SplitTunnelTarget, SubscriptionMetadata,
 };
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 /// Request body for adding a split tunnel rule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AddSplitTunnelRuleRequest {
     pub target: SplitTunnelTarget,
     pub value: String,
@@ -19,7 +20,7 @@ pub struct AddSplitTunnelRuleRequest {
 }
 
 /// Request body for updating a split tunnel rule.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateSplitTunnelRuleRequest {
     pub target: SplitTunnelTarget,
     pub value: String,
@@ -29,7 +30,7 @@ pub struct UpdateSplitTunnelRuleRequest {
 }
 
 /// Request body for adding a subscription.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct AddSubscriptionRequest {
     pub url: String,
     pub name: Option<String>,
@@ -37,7 +38,7 @@ pub struct AddSubscriptionRequest {
 }
 
 /// Stored subscription record with cached nodes and metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StoredSubscription {
     pub id: Uuid,
     pub url: String,
@@ -74,7 +75,7 @@ impl StoredSubscription {
 }
 
 /// A node with its owning subscription context.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct NodeWithSubscription {
     pub id: Uuid,
     pub subscription_id: Uuid,
@@ -85,7 +86,7 @@ pub struct NodeWithSubscription {
 }
 
 /// Request body for starting the proxy.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct StartProxyRequest {
     pub node_id: Option<Uuid>,
     pub socks_port: Option<u16>,
@@ -96,7 +97,7 @@ pub struct StartProxyRequest {
 }
 
 /// Response body for proxy status.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProxyStatus {
     pub running: bool,
     pub selected_node: Option<NodeWithSubscription>,
@@ -111,7 +112,7 @@ pub struct ProxyStatus {
 }
 
 /// Aggregate health/status response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -120,7 +121,7 @@ pub struct HealthResponse {
 }
 
 /// Capabilities for a single proxy core backend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BackendCapability {
     pub available: bool,
     pub geo_assets_available: bool,
@@ -128,27 +129,27 @@ pub struct BackendCapability {
 }
 
 /// Capabilities reported by the daemon for the installed proxy cores.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct BackendCapabilities {
     pub xray: BackendCapability,
     pub sing_box: BackendCapability,
 }
 
 /// Config response wrapping the existing application config.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ConfigResponse {
     pub config: ironpass_config::AppConfig,
 }
 
 /// HWID response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct HwidResponse {
     pub hwid: String,
     pub info: HwidInfo,
 }
 
 /// Detailed subscription response including its nodes.
-#[derive(serde::Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct SubscriptionDetail {
     pub subscription: StoredSubscription,
     pub nodes: Vec<NodeWithSubscription>,
