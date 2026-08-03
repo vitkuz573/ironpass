@@ -9,6 +9,7 @@ use std::sync::Arc;
 #[utoipa::path(
     get,
     path = "/api/v1/config",
+    operation_id = "get_config",
     tag = "System",
     responses(
         (status = 200, description = "Current config", body = ConfigResponse),
@@ -26,6 +27,7 @@ pub async fn get_config(
 #[utoipa::path(
     put,
     path = "/api/v1/config",
+    operation_id = "update_config",
     tag = "System",
     request_body = AppConfig,
     responses(

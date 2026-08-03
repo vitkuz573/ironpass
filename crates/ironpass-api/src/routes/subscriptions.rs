@@ -15,6 +15,7 @@ use uuid::Uuid;
 #[utoipa::path(
     get,
     path = "/api/v1/subscriptions",
+    operation_id = "list_subscriptions",
     tag = "Subscriptions",
     responses(
         (status = 200, description = "List of subscriptions", body = [StoredSubscription]),
@@ -31,6 +32,7 @@ pub async fn list(
 #[utoipa::path(
     post,
     path = "/api/v1/subscriptions",
+    operation_id = "create_subscription",
     tag = "Subscriptions",
     request_body = AddSubscriptionRequest,
     responses(
@@ -51,6 +53,7 @@ pub async fn add(
 #[utoipa::path(
     get,
     path = "/api/v1/subscriptions/{id}",
+    operation_id = "get_subscription",
     tag = "Subscriptions",
     params(("id" = Uuid, Path, description = "Subscription ID")),
     responses(
@@ -78,6 +81,7 @@ pub async fn get(
 #[utoipa::path(
     delete,
     path = "/api/v1/subscriptions/{id}",
+    operation_id = "delete_subscription",
     tag = "Subscriptions",
     params(("id" = Uuid, Path, description = "Subscription ID")),
     responses(
@@ -100,6 +104,7 @@ pub async fn delete(
 #[utoipa::path(
     put,
     path = "/api/v1/subscriptions/{id}/fetch",
+    operation_id = "fetch_subscription",
     tag = "Subscriptions",
     params(
         ("id" = Uuid, Path, description = "Subscription ID"),

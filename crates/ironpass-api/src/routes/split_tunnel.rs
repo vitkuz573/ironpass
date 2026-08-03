@@ -15,6 +15,7 @@ use uuid::Uuid;
 #[utoipa::path(
     get,
     path = "/api/v1/split-tunnel",
+    operation_id = "list_split_tunnel_rules",
     tag = "Split Tunnel",
     params(("node" = Option<Uuid>, Query, description = "Optional node ID filter")),
     responses(
@@ -34,6 +35,7 @@ pub async fn list(
 #[utoipa::path(
     post,
     path = "/api/v1/split-tunnel",
+    operation_id = "create_split_tunnel_rule",
     tag = "Split Tunnel",
     request_body = AddSplitTunnelRuleRequest,
     responses(
@@ -56,6 +58,7 @@ pub async fn add(
 #[utoipa::path(
     get,
     path = "/api/v1/split-tunnel/{id}",
+    operation_id = "get_split_tunnel_rule",
     tag = "Split Tunnel",
     params(("id" = Uuid, Path, description = "Rule ID")),
     responses(
@@ -79,6 +82,7 @@ pub async fn get(
 #[utoipa::path(
     put,
     path = "/api/v1/split-tunnel/{id}",
+    operation_id = "update_split_tunnel_rule",
     tag = "Split Tunnel",
     params(("id" = Uuid, Path, description = "Rule ID")),
     request_body = UpdateSplitTunnelRuleRequest,
@@ -104,6 +108,7 @@ pub async fn update(
 #[utoipa::path(
     delete,
     path = "/api/v1/split-tunnel/{id}",
+    operation_id = "delete_split_tunnel_rule",
     tag = "Split Tunnel",
     params(("id" = Uuid, Path, description = "Rule ID")),
     responses(

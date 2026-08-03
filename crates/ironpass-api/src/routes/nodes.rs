@@ -21,6 +21,7 @@ pub struct ListNodesQuery {
 #[utoipa::path(
     get,
     path = "/api/v1/nodes",
+    operation_id = "list_nodes",
     tag = "Nodes",
     params(("subscription" = Option<Uuid>, Query, description = "Optional subscription ID filter")),
     responses(
@@ -39,6 +40,7 @@ pub async fn list(
 #[utoipa::path(
     put,
     path = "/api/v1/nodes/{id}/select",
+    operation_id = "select_node",
     tag = "Nodes",
     params(("id" = Uuid, Path, description = "Node ID")),
     responses(

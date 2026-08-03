@@ -17,6 +17,7 @@ use utoipa::OpenApi;
         title = "IronPass API",
         version = "0.1.0",
         description = "REST API for managing subscriptions, proxy nodes, split tunnel rules and the local proxy daemon.",
+        license(name = "MIT"),
     ),
     paths(
         crate::routes::health,

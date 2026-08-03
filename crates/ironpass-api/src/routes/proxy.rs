@@ -8,6 +8,7 @@ use std::sync::Arc;
 #[utoipa::path(
     get,
     path = "/api/v1/proxy/status",
+    operation_id = "get_proxy_status",
     tag = "Proxy",
     responses(
         (status = 200, description = "Proxy status", body = ProxyStatus),
@@ -22,6 +23,7 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Result<Json<ProxyStat
 #[utoipa::path(
     post,
     path = "/api/v1/proxy/start",
+    operation_id = "start_proxy",
     tag = "Proxy",
     request_body = StartProxyRequest,
     responses(
@@ -42,6 +44,7 @@ pub async fn start(
 #[utoipa::path(
     post,
     path = "/api/v1/proxy/stop",
+    operation_id = "stop_proxy",
     tag = "Proxy",
     responses(
         (status = 200, description = "Proxy stopped", body = ProxyStatus),

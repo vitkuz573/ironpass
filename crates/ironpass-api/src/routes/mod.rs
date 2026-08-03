@@ -62,6 +62,7 @@ pub fn router(state: Arc<AppState>) -> Router {
 #[utoipa::path(
     get,
     path = "/api/v1/health",
+    operation_id = "get_health",
     tag = "System",
     responses(
         (status = 200, description = "Service is healthy", body = HealthResponse),
@@ -82,6 +83,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Result<Json<HealthRespons
 #[utoipa::path(
     get,
     path = "/api/v1/backend/capabilities",
+    operation_id = "get_backend_capabilities",
     tag = "Backend",
     responses(
         (status = 200, description = "Backend capabilities", body = BackendCapabilities),

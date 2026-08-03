@@ -8,6 +8,7 @@ use std::sync::Arc;
 #[utoipa::path(
     get,
     path = "/api/v1/hwid",
+    operation_id = "get_hwid",
     tag = "Auth",
     responses(
         (status = 200, description = "HWID and device info", body = HwidResponse),
@@ -24,6 +25,7 @@ pub async fn get_hwid(State(state): State<Arc<AppState>>) -> Result<Json<HwidRes
 #[utoipa::path(
     put,
     path = "/api/v1/hwid/regenerate",
+    operation_id = "regenerate_hwid",
     tag = "Auth",
     responses(
         (status = 200, description = "Regenerated HWID", body = HwidResponse),
