@@ -5,7 +5,7 @@ use ironpass_api_client::models as api_models;
 use ironpass_backend::BackendCapabilities;
 use ironpass_config::AppConfig;
 use ironpass_core::models::{
-    HwidInfo, Protocol, ProxyNode, Security, SplitTunnelAction, SplitTunnelRule,
+    HwidInfo, Protocol, ProxyNode, RoutingMode, Security, SplitTunnelAction, SplitTunnelRule,
     SplitTunnelTarget, SubscriptionMetadata, Transport, XhttpExtra,
 };
 use utoipa::OpenApi;
@@ -61,6 +61,7 @@ use utoipa::OpenApi;
         HwidInfo,
         Protocol,
         ProxyNode,
+        RoutingMode,
         Security,
         SplitTunnelAction,
         SplitTunnelRule,

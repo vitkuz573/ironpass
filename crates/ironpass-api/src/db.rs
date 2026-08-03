@@ -2,7 +2,8 @@
 
 use crate::models::StoredSubscription;
 use ironpass_core::models::{
-    ProxyNode, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, SubscriptionMetadata,
+    ProxyNode, RoutingMode, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget,
+    SubscriptionMetadata,
 };
 use rusqlite::{Connection, OptionalExtension, params};
 use std::path::PathBuf;
@@ -405,7 +406,8 @@ impl DbPool {
 
     pub fn get_selected_node_id(&self) -> Result<Option<Uuid>, rusqlite::Error> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT value FROM proxy_state WHERE key = 'selected_node_id'")?;
+        let mut stmt =
+            conn.prepare("SELECT value FROM proxy_state WHERE key = 'selected_node_id'")?;
         let value: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
         drop(stmt);
         drop(conn);
@@ -420,12 +422,43 @@ impl DbPool {
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 [id.to_string()],
             )?,
-            None => conn.execute(
-                "DELETE FROM proxy_state WHERE key = 'selected_node_id'",
-                [],
-            )?,
+            None => conn.execute("DELETE FROM proxy_state WHERE key = 'selected_node_id'", [])?,
         };
         Ok(())
+    }
+
+    pub fn get_routing_mode(&self) -> Result<RoutingMode, rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT value FROM proxy_state WHERE key = 'routing_mode'")?;
+        let value: Option<String> = stmt.query_row([], |row| row.get(0)).optional()?;
+        drop(stmt);
+        drop(conn);
+        Ok(value.map(parse_routing_mode).unwrap_or_default())
+    }
+
+    pub fn set_routing_mode(&self, mode: RoutingMode) -> Result<(), rusqlite::Error> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO proxy_state (key, value) VALUES ('routing_mode', ?1)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            [routing_mode_to_string(mode)],
+        )?;
+        Ok(())
+    }
+}
+
+fn routing_mode_to_string(mode: RoutingMode) -> String {
+    match mode {
+        RoutingMode::ProxyAllExceptBypass => "proxy_all_except_bypass",
+        RoutingMode::ProxyOnlyListed => "proxy_only_listed",
+    }
+    .into()
+}
+
+fn parse_routing_mode(s: String) -> RoutingMode {
+    match s.as_str() {
+        "proxy_only_listed" => RoutingMode::ProxyOnlyListed,
+        _ => RoutingMode::ProxyAllExceptBypass,
     }
 }
 

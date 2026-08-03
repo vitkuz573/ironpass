@@ -3,16 +3,18 @@
 use crate::db::DbPool;
 use crate::models::{NodeWithSubscription, ProxyStatus, StartProxyRequest, StoredSubscription};
 use ironpass_backend::{
-    BackendCapability, BackendCapabilities, BackendRegistry, BackendType, CoreProcessManager,
+    BackendCapabilities, BackendCapability, BackendRegistry, BackendType, CoreProcessManager,
     CoreType, GeneratedConfig, ProxyPorts, detect_geo_assets, locate_core_binary,
 };
-use std::process::Command;
 use ironpass_config::{AppConfig, ConfigManager};
-use ironpass_core::models::{SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Subscription};
+use ironpass_core::models::{
+    RoutingMode, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Subscription,
+};
 use ironpass_core::traits::HwidProvider;
 use ironpass_subscription::{FetchOptions, HttpSubscriptionFetcher, SubscriptionService};
 use reqwest::Client;
 use std::path::PathBuf;
+use std::process::Command;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
@@ -28,6 +30,7 @@ pub struct AppState {
     pub selected_node: Arc<RwLock<Option<Uuid>>>,
     pub proxy_ports: Arc<RwLock<Option<ProxyPorts>>>,
     pub split_tunnel_rules: Arc<RwLock<Vec<SplitTunnelRule>>>,
+    pub routing_mode: Arc<RwLock<RoutingMode>>,
     pub start_time: Instant,
     pub xray_path: Arc<RwLock<Option<PathBuf>>>,
     pub backend_registry: Arc<BackendRegistry>,
@@ -42,6 +45,7 @@ impl AppState {
         xray_path: Option<PathBuf>,
     ) -> Self {
         let selected_node = db.get_selected_node_id().unwrap_or(None);
+        let routing_mode = db.get_routing_mode().unwrap_or_default();
         let backend_registry = BackendRegistry::new();
         backend_registry.refresh_geo_assets();
         let _caps = backend_registry.xray_geo_status();
@@ -58,6 +62,7 @@ impl AppState {
             selected_node: Arc::new(RwLock::new(selected_node)),
             proxy_ports: Arc::new(RwLock::new(None)),
             split_tunnel_rules: Arc::new(RwLock::new(Vec::new())),
+            routing_mode: Arc::new(RwLock::new(routing_mode)),
             start_time: Instant::now(),
             xray_path: Arc::new(RwLock::new(xray_path)),
             backend_registry: Arc::new(backend_registry),
@@ -133,11 +138,16 @@ impl AppState {
     }
 
     pub fn load_config(&self) -> anyhow::Result<AppConfig> {
-        Ok(self.config_manager.load_config()?)
+        let mut config = self.config_manager.load_config()?;
+        config.routing_mode = self.db.get_routing_mode().unwrap_or_default();
+        Ok(config)
     }
 
     pub fn save_config(&self, config: &AppConfig) -> anyhow::Result<()> {
-        Ok(self.config_manager.save_config(config)?)
+        self.db.set_routing_mode(config.routing_mode)?;
+        let mut file_config = config.clone();
+        file_config.routing_mode = RoutingMode::default();
+        Ok(self.config_manager.save_config(&file_config)?)
     }
 
     pub async fn add_subscription(
@@ -426,7 +436,9 @@ impl AppState {
         }
 
         let rules = self.split_tunnel_rules.read().await.clone();
-        let config: GeneratedConfig = backend.generate_config(&node.node, ports, &rules)?;
+        let routing_mode = *self.routing_mode.read().await;
+        let config: GeneratedConfig =
+            backend.generate_config(&node.node, ports, &rules, routing_mode)?;
         let core_type = backend.core_type();
         let actual_ports = ProxyPorts {
             socks: config.socks_port,

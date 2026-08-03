@@ -1,9 +1,15 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { IronpassApi, splitTunnelTargetOptions, splitTunnelActionOptions } from "@/lib/api";
+import {
+  IronpassApi,
+  splitTunnelTargetOptions,
+  splitTunnelActionOptions,
+  routingModeOptions,
+} from "@/lib/api";
 import type {
   NodeWithSubscription,
+  RoutingMode,
   SplitTunnelAction,
   SplitTunnelRule,
   SplitTunnelTarget,
@@ -49,11 +55,17 @@ import { ConfirmDialog } from "@/components/confirm-dialog";
 export default function SplitTunnelPage() {
   const [rules, setRules] = useState<SplitTunnelRule[]>([]);
   const [nodes, setNodes] = useState<NodeWithSubscription[]>([]);
+  const [routingMode, setRoutingMode] = useState<RoutingMode>("proxy_all_except_bypass");
   const [loading, setLoading] = useState(true);
+  const [savingMode, setSavingMode] = useState(false);
 
   const [target, setTarget] = useState<SplitTunnelTarget>("domain");
   const [value, setValue] = useState("");
   const [action, setAction] = useState<SplitTunnelAction>("direct");
+
+  useEffect(() => {
+    setAction(routingMode === "proxy_only_listed" ? "proxy" : "direct");
+  }, [routingMode]);
   const [nodeId, setNodeId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -85,12 +97,14 @@ export default function SplitTunnelPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [r, n] = await Promise.all([
+      const [r, n, config] = await Promise.all([
         IronpassApi.listSplitTunnelRules(),
         IronpassApi.listNodes(),
+        IronpassApi.getConfig(),
       ]);
       setRules(r);
       setNodes(n);
+      setRoutingMode(config.routing_mode ?? "proxy_all_except_bypass");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to load split tunnel rules");
     } finally {
@@ -105,9 +119,24 @@ export default function SplitTunnelPage() {
   function resetForm() {
     setTarget("domain");
     setValue("");
-    setAction("direct");
+    setAction(routingMode === "proxy_only_listed" ? "proxy" : "direct");
     setNodeId("");
     setFormError(null);
+  }
+
+  async function handleRoutingModeChange(value: RoutingMode) {
+    setSavingMode(true);
+    try {
+      const config = await IronpassApi.getConfig();
+      config.routing_mode = value;
+      await IronpassApi.putConfig(config);
+      setRoutingMode(value);
+      toast.success("Routing mode updated");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update routing mode");
+    } finally {
+      setSavingMode(false);
+    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -203,6 +232,43 @@ export default function SplitTunnelPage() {
         <h1 className="text-2xl font-bold tracking-tight">Split Tunnel</h1>
         <p className="text-muted-foreground">Configure per-target routing rules.</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Routing mode</CardTitle>
+          <CardDescription>
+            Choose how traffic is routed when no rule matches.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid gap-2">
+              <Label htmlFor="routing-mode">Default behavior</Label>
+              <Select
+                value={routingMode}
+                onValueChange={(v) => handleRoutingModeChange(v as RoutingMode)}
+                disabled={savingMode}
+              >
+                <SelectTrigger id="routing-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {routingModeOptions.map((opt) => (
+                    <SelectItem key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            {routingMode === "proxy_all_except_bypass"
+              ? "All traffic goes through the proxy except rules marked Direct."
+              : "Only rules marked Proxy go through the proxy; everything else is direct."}
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

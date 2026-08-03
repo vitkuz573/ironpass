@@ -8,7 +8,9 @@ use crate::assets::{GeoAssetStatus, detect_geo_assets, locate_core_binary};
 use crate::core_process::CoreType;
 use crate::singbox::generate_config as generate_singbox_config;
 use crate::xray::generate_config as generate_xray_config;
-use ironpass_core::models::{Protocol, ProxyNode, Security, SplitTunnelRule, Transport};
+use ironpass_core::models::{
+    Protocol, ProxyNode, RoutingMode, Security, SplitTunnelRule, Transport,
+};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
@@ -30,9 +32,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// User-selectable backend type.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[schema(rename_all = "snake_case")]
 pub enum BackendType {
@@ -94,6 +94,7 @@ pub trait Backend: Send + Sync {
         node: &ProxyNode,
         ports: ProxyPorts,
         rules: &[SplitTunnelRule],
+        routing_mode: RoutingMode,
     ) -> anyhow::Result<GeneratedConfig>;
 
     /// Return the core process type associated with this backend.
@@ -166,9 +167,10 @@ impl BackendRegistry {
             self.xray.write().unwrap().set_geo_asset_status(status);
         }
         let sing_box_path = self.sing_box.read().unwrap().binary_path().cloned();
-        if let Some(path) =
-            locate_core_binary(&["sing-box", "sing-box.exe", "sb"], sing_box_path.as_deref())
-        {
+        if let Some(path) = locate_core_binary(
+            &["sing-box", "sing-box.exe", "sb"],
+            sing_box_path.as_deref(),
+        ) {
             let status = detect_geo_assets(Some(&path));
             self.sing_box.write().unwrap().set_geo_asset_status(status);
         }
@@ -180,7 +182,9 @@ impl BackendRegistry {
     /// otherwise.
     pub fn resolve(&self, backend_type: BackendType, node: &ProxyNode) -> Arc<dyn Backend> {
         match backend_type {
-            BackendType::SingBox => Arc::new(BackendSnapshot::from(&*self.sing_box.read().unwrap())),
+            BackendType::SingBox => {
+                Arc::new(BackendSnapshot::from(&*self.sing_box.read().unwrap()))
+            }
             BackendType::Xray => Arc::new(BackendSnapshot::from(&*self.xray.read().unwrap())),
             BackendType::Auto => {
                 if self.xray.read().unwrap().supports(node) {
@@ -214,6 +218,7 @@ impl Backend for BackendSnapshot {
         node: &ProxyNode,
         ports: ProxyPorts,
         rules: &[SplitTunnelRule],
+        routing_mode: RoutingMode,
     ) -> anyhow::Result<GeneratedConfig> {
         match self.core {
             CoreType::SingBox => {
@@ -226,6 +231,7 @@ impl Backend for BackendSnapshot {
                     },
                     rules,
                     self.geo,
+                    routing_mode,
                 )?;
                 Ok(GeneratedConfig {
                     json: cfg.json,
@@ -244,6 +250,7 @@ impl Backend for BackendSnapshot {
                     },
                     rules,
                     self.geo,
+                    routing_mode,
                 )?;
                 Ok(GeneratedConfig {
                     json: cfg.json,
@@ -275,7 +282,9 @@ impl From<&SingBoxBackend> for BackendSnapshot {
     fn from(backend: &SingBoxBackend) -> Self {
         Self {
             core: CoreType::SingBox,
-            geo: backend.geo_asset_status().unwrap_or(GeoAssetStatus::new(false)),
+            geo: backend
+                .geo_asset_status()
+                .unwrap_or(GeoAssetStatus::new(false)),
         }
     }
 }
@@ -284,7 +293,9 @@ impl From<&XrayBackend> for BackendSnapshot {
     fn from(backend: &XrayBackend) -> Self {
         Self {
             core: CoreType::Xray,
-            geo: backend.geo_asset_status().unwrap_or(GeoAssetStatus::new(true)),
+            geo: backend
+                .geo_asset_status()
+                .unwrap_or(GeoAssetStatus::new(true)),
         }
     }
 }
@@ -316,6 +327,7 @@ impl Backend for SingBoxBackend {
         node: &ProxyNode,
         ports: ProxyPorts,
         rules: &[SplitTunnelRule],
+        routing_mode: RoutingMode,
     ) -> anyhow::Result<GeneratedConfig> {
         let cfg = generate_singbox_config(
             node,
@@ -326,6 +338,7 @@ impl Backend for SingBoxBackend {
             },
             rules,
             self.geo,
+            routing_mode,
         )?;
         Ok(GeneratedConfig {
             json: cfg.json,
@@ -387,6 +400,7 @@ impl Backend for XrayBackend {
         node: &ProxyNode,
         ports: ProxyPorts,
         rules: &[SplitTunnelRule],
+        routing_mode: RoutingMode,
     ) -> anyhow::Result<GeneratedConfig> {
         let cfg = generate_xray_config(
             node,
@@ -397,6 +411,7 @@ impl Backend for XrayBackend {
             },
             rules,
             self.geo,
+            routing_mode,
         )?;
         Ok(GeneratedConfig {
             json: cfg.json,

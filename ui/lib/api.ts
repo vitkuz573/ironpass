@@ -17,6 +17,7 @@ export type HwidResponse = components["schemas"]["HwidResponse"];
 export type NodeWithSubscription = components["schemas"]["NodeWithSubscription"];
 export type ProxyNode = components["schemas"]["ProxyNode"];
 export type ProxyStatus = components["schemas"]["ProxyStatus"];
+export type RoutingMode = components["schemas"]["RoutingMode"];
 export type SplitTunnelAction = components["schemas"]["SplitTunnelAction"];
 export type SplitTunnelRule = components["schemas"]["SplitTunnelRule"];
 export type SplitTunnelTarget = components["schemas"]["SplitTunnelTarget"];
@@ -202,4 +203,9 @@ export const splitTunnelTargetOptions: { value: SplitTunnelTarget; label: string
 export const splitTunnelActionOptions: { value: SplitTunnelAction; label: string }[] = [
   { value: "direct", label: "Direct" },
   { value: "proxy", label: "Proxy" },
+];
+
+export const routingModeOptions: { value: RoutingMode; label: string }[] = [
+  { value: "proxy_all_except_bypass", label: "Proxy all except bypass rules" },
+  { value: "proxy_only_listed", label: "Proxy only listed rules" },
 ];

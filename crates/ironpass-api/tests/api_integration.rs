@@ -94,11 +94,9 @@ async fn config_round_trip() {
     assert_eq!(get.status(), StatusCode::OK);
 
     let default_config = ironpass_config::AppConfig::default();
-    let body = serde_json::to_string(&ironpass_api::models::ConfigResponse {
-        config: default_config,
-    })
-    .unwrap();
+    let body = serde_json::to_string(&default_config).unwrap();
     let put = router
+        .clone()
         .oneshot(
             Request::builder()
                 .method("PUT")
@@ -110,6 +108,44 @@ async fn config_round_trip() {
         .await
         .unwrap();
     assert_eq!(put.status(), StatusCode::OK);
+
+    let updated_config = ironpass_config::AppConfig {
+        routing_mode: ironpass_core::models::RoutingMode::ProxyOnlyListed,
+        ..Default::default()
+    };
+    let body = serde_json::to_string(&updated_config).unwrap();
+    let put = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/config")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(put.status(), StatusCode::OK);
+
+    let get2 = router
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/config")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(get2.status(), StatusCode::OK);
+    let body_bytes = axum::body::to_bytes(get2.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let resp: ironpass_api::models::ConfigResponse = serde_json::from_slice(&body_bytes).unwrap();
+    assert_eq!(
+        resp.config.routing_mode,
+        ironpass_core::models::RoutingMode::ProxyOnlyListed
+    );
 }
 
 #[tokio::test]

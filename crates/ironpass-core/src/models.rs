@@ -49,9 +49,7 @@ pub enum Security {
 }
 
 /// Target type for a split tunnel rule.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[schema(rename_all = "snake_case")]
 pub enum SplitTunnelTarget {
@@ -67,9 +65,7 @@ pub enum SplitTunnelTarget {
 }
 
 /// Action for a split tunnel rule.
-#[derive(
-    Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema,
-)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[schema(rename_all = "snake_case")]
 pub enum SplitTunnelAction {
@@ -78,6 +74,37 @@ pub enum SplitTunnelAction {
     Direct,
     /// Force traffic through the proxy.
     Proxy,
+}
+
+impl SplitTunnelAction {
+    /// Return the outbound tag corresponding to this action.
+    pub fn outbound_tag(self) -> &'static str {
+        match self {
+            SplitTunnelAction::Direct => "direct",
+            SplitTunnelAction::Proxy => "proxy",
+        }
+    }
+
+    /// Return true if this rule action differs from the default outbound tag.
+    ///
+    /// In `ProxyAllExceptBypass` the default outbound is `proxy`, so only
+    /// `direct` rules need to be emitted. In `ProxyOnlyListed` the default is
+    /// `direct`, so only `proxy` rules need to be emitted.
+    pub fn matches_routing_mode(self, default_tag: &str) -> bool {
+        self.outbound_tag() != default_tag
+    }
+}
+
+/// Global routing mode for split tunnel behavior.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[schema(rename_all = "snake_case")]
+pub enum RoutingMode {
+    /// Route everything through the proxy except explicit `direct` rules.
+    #[default]
+    ProxyAllExceptBypass,
+    /// Route everything directly except explicit `proxy` rules.
+    ProxyOnlyListed,
 }
 
 /// A user-defined split tunnel (selective routing) rule.

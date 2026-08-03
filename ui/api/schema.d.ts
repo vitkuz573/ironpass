@@ -288,6 +288,8 @@ export interface components {
             general?: components["schemas"]["GeneralConfig"];
             hwid?: components["schemas"]["HwidConfig"];
             logging?: components["schemas"]["LoggingConfig"];
+            /** @description Global split-tunnel routing mode. */
+            routing_mode?: components["schemas"]["RoutingMode"];
             subscription?: components["schemas"]["SubscriptionConfig"];
         };
         /** @description Capabilities reported by the daemon for the installed proxy cores. */
@@ -416,6 +418,11 @@ export interface components {
             /** Format: int64 */
             uptime_secs?: number | null;
         };
+        /**
+         * @description Global routing mode for split tunnel behavior.
+         * @enum {string}
+         */
+        RoutingMode: "proxy_all_except_bypass" | "proxy_only_listed";
         /**
          * @description Security layer used by a proxy node.
          * @enum {string}
@@ -552,6 +559,8 @@ export interface components {
             noGrpcHeader?: boolean | null;
             /** @description Optional padding range for the HTTP request body, e.g. `"100-1000"`. */
             xPaddingBytes?: string | null;
+        } & {
+            [key: string]: unknown;
         };
     };
     responses: never;

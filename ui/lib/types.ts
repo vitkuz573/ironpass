@@ -12,6 +12,7 @@ export type {
   NodeWithSubscription,
   ProxyNode,
   ProxyStatus,
+  RoutingMode,
   SplitTunnelAction,
   SplitTunnelRule,
   SplitTunnelTarget,

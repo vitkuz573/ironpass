@@ -2,7 +2,7 @@
 
 use crate::assets::GeoAssetStatus;
 use ironpass_core::models::{
-    Protocol, ProxyNode, Security, SplitTunnelAction, SplitTunnelRule, SplitTunnelTarget, Transport,
+    Protocol, ProxyNode, RoutingMode, Security, SplitTunnelRule, SplitTunnelTarget, Transport,
 };
 use serde::Serialize;
 use serde_json::{Map, Value};
@@ -91,6 +91,7 @@ pub fn generate_config(
     ports: InboundPorts,
     rules: &[SplitTunnelRule],
     geo_status: GeoAssetStatus,
+    routing_mode: RoutingMode,
 ) -> anyhow::Result<SingBoxConfig> {
     let outbound = build_outbound(node)?;
 
@@ -124,7 +125,7 @@ pub fn generate_config(
         dns: Some(dns()),
         inbounds,
         outbounds: vec![outbound, direct_outbound(), block_outbound()],
-        route: build_route(rules, geo_status),
+        route: build_route(rules, geo_status, routing_mode),
     };
 
     let json = serde_json::to_string_pretty(&root)?;
@@ -394,7 +395,11 @@ fn block_outbound() -> Value {
     })
 }
 
-fn build_route(rules: &[SplitTunnelRule], geo_status: GeoAssetStatus) -> Route {
+fn build_route(
+    rules: &[SplitTunnelRule],
+    geo_status: GeoAssetStatus,
+    routing_mode: RoutingMode,
+) -> Route {
     let mut route_rules = Vec::with_capacity(rules.len().saturating_add(2));
     if geo_status.available {
         route_rules.push(serde_json::json!({
@@ -416,7 +421,16 @@ fn build_route(rules: &[SplitTunnelRule], geo_status: GeoAssetStatus) -> Route {
             "domain_suffix": [LOCAL_SUFFIX]
         }));
     }
+
+    let default_tag = match routing_mode {
+        RoutingMode::ProxyAllExceptBypass => "proxy",
+        RoutingMode::ProxyOnlyListed => "direct",
+    };
+
     for rule in rules {
+        if !rule.action.matches_routing_mode(default_tag) {
+            continue;
+        }
         let Some(value) = build_route_rule(rule) else {
             tracing::warn!("Skipping unsupported split tunnel rule: {:?}", rule);
             continue;
@@ -428,15 +442,12 @@ fn build_route(rules: &[SplitTunnelRule], geo_status: GeoAssetStatus) -> Route {
         geosite: None,
         rules: route_rules,
         auto_detect_interface: true,
-        final_outbound: "proxy",
+        final_outbound: default_tag,
     }
 }
 
 fn build_route_rule(rule: &SplitTunnelRule) -> Option<Value> {
-    let outbound = match rule.action {
-        SplitTunnelAction::Direct => "direct",
-        SplitTunnelAction::Proxy => "proxy",
-    };
+    let outbound = rule.action.outbound_tag();
     let mut map = Map::new();
     map.insert("outbound".into(), outbound.into());
 
@@ -510,7 +521,14 @@ mod tests {
     #[test]
     fn vless_reality_config_contains_outbound() {
         let node = sample_vless_reality();
-        let cfg = generate_config(&node, InboundPorts::default(), &[], GeoAssetStatus::new(false)).unwrap();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(false),
+            RoutingMode::default(),
+        )
+        .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
         let proxy = outbounds
@@ -548,6 +566,7 @@ mod tests {
             },
             &[],
             GeoAssetStatus::new(false),
+            RoutingMode::default(),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -589,6 +608,7 @@ mod tests {
             },
             &[],
             GeoAssetStatus::new(false),
+            RoutingMode::default(),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -613,7 +633,14 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::default(),
+        )
+        .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route = value.get("route").unwrap();
         let route_rules = route.get("rules").unwrap().as_array().unwrap();
@@ -624,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn wildcard_domain_uses_domain_suffix() {
+    fn proxy_rules_are_emitted_in_proxy_only_listed_mode() {
         use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![SplitTunnelRule::new(
@@ -633,15 +660,23 @@ mod tests {
             SplitTunnelAction::Proxy,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::ProxyOnlyListed,
+        )
+        .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 3);
         assert_eq!(route_rules[2].get("outbound").unwrap(), "proxy");
         assert_eq!(route_rules[2].get("domain_suffix").unwrap(), "example.com");
     }
 
     #[test]
-    fn ip_and_cidr_rules_use_ip_cidr() {
+    fn direct_rules_are_emitted_in_proxy_all_except_bypass_mode() {
         use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
         let node = sample_vless_reality();
         let rules = vec![
@@ -658,14 +693,55 @@ mod tests {
                 None,
             ),
         ];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::default(),
+        )
+        .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
-        assert_eq!(route_rules.len(), 4);
-        let first = route_rules[2]["ip_cidr"].as_array().unwrap();
-        assert!(first.iter().any(|v| v == "1.2.3.4"));
-        let second = route_rules[3]["ip_cidr"].as_array().unwrap();
-        assert!(second.iter().any(|v| v == "10.0.0.0/8"));
+        // private + localhost + 1 direct rule
+        assert_eq!(route_rules.len(), 3);
+        let ips = route_rules[2]["ip_cidr"].as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "1.2.3.4"));
+    }
+
+    #[test]
+    fn proxy_rules_are_emitted_in_proxy_only_listed_mode_with_ip_and_cidr() {
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Ip,
+                "1.2.3.4",
+                SplitTunnelAction::Direct,
+                None,
+            ),
+            SplitTunnelRule::new(
+                SplitTunnelTarget::Cidr,
+                "10.0.0.0/8",
+                SplitTunnelAction::Proxy,
+                None,
+            ),
+        ];
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::ProxyOnlyListed,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        // private + localhost + 1 proxy rule
+        assert_eq!(route_rules.len(), 3);
+        assert_eq!(route_rules[2].get("outbound").unwrap(), "proxy");
+        let ips = route_rules[2]["ip_cidr"].as_array().unwrap();
+        assert!(ips.iter().any(|v| v == "10.0.0.0/8"));
     }
 
     #[test]
@@ -678,7 +754,14 @@ mod tests {
             SplitTunnelAction::Direct,
             None,
         )];
-        let cfg = generate_config(&node, InboundPorts::default(), &rules, GeoAssetStatus::new(false)).unwrap();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::default(),
+        )
+        .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
         let route_rules = value["route"]["rules"].as_array().unwrap();
         assert_eq!(route_rules.len(), 2);
@@ -692,6 +775,7 @@ mod tests {
             InboundPorts::default(),
             &[],
             GeoAssetStatus::new(false),
+            RoutingMode::default(),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -713,6 +797,7 @@ mod tests {
             InboundPorts::default(),
             &[],
             GeoAssetStatus::new(true),
+            RoutingMode::default(),
         )
         .unwrap();
         let value: Value = serde_json::from_str(&cfg.json).unwrap();
@@ -722,5 +807,45 @@ mod tests {
         assert!(route_rules[0].get("geoip").is_some());
         assert_eq!(route_rules[1].get("outbound").unwrap(), "block");
         assert!(route_rules[1].get("geosite").is_some());
+    }
+
+    #[test]
+    fn proxy_only_listed_sets_final_outbound_to_direct() {
+        use ironpass_core::models::{SplitTunnelAction, SplitTunnelTarget};
+        let node = sample_vless_reality();
+        let rules = vec![SplitTunnelRule::new(
+            SplitTunnelTarget::Domain,
+            "example.com",
+            SplitTunnelAction::Proxy,
+            None,
+        )];
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &rules,
+            GeoAssetStatus::new(false),
+            RoutingMode::ProxyOnlyListed,
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        assert_eq!(value["route"]["final"], "direct");
+        let route_rules = value["route"]["rules"].as_array().unwrap();
+        assert_eq!(route_rules.len(), 3);
+        assert_eq!(route_rules[2].get("outbound").unwrap(), "proxy");
+    }
+
+    #[test]
+    fn proxy_all_except_bypass_sets_final_outbound_to_proxy() {
+        let node = sample_vless_reality();
+        let cfg = generate_config(
+            &node,
+            InboundPorts::default(),
+            &[],
+            GeoAssetStatus::new(false),
+            RoutingMode::default(),
+        )
+        .unwrap();
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        assert_eq!(value["route"]["final"], "proxy");
     }
 }

@@ -1,3 +1,4 @@
+use ironpass_core::models::RoutingMode;
 use ironpass_core::{Error, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -21,6 +22,10 @@ pub struct AppConfig {
 
     #[serde(default)]
     pub logging: LoggingConfig,
+
+    /// Global split-tunnel routing mode.
+    #[serde(default)]
+    pub routing_mode: RoutingMode,
 }
 
 /// General application settings.
