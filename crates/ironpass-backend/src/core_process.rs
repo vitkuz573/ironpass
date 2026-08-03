@@ -60,6 +60,13 @@ pub struct CoreProcessManager {
     start_time: Arc<Mutex<Option<Instant>>>,
     last_error: Arc<Mutex<Option<String>>>,
     restart_count: Arc<Mutex<usize>>,
+    // Tracks whether the manager believes the process is running. Separated
+    // from the child mutex so `is_running()`/`status()` never block behind a
+    // `wait().await` in the monitor task.
+    running: Arc<Mutex<bool>>,
+    // Cached PID of the running child. Updated independently of the child
+    // mutex so `status()` can report it without blocking on the monitor wait.
+    pid: Arc<Mutex<Option<u32>>>,
 }
 
 impl CoreProcessManager {
@@ -71,6 +78,8 @@ impl CoreProcessManager {
             start_time: Arc::new(Mutex::new(None)),
             last_error: Arc::new(Mutex::new(None)),
             restart_count: Arc::new(Mutex::new(0)),
+            running: Arc::new(Mutex::new(false)),
+            pid: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -82,6 +91,8 @@ impl CoreProcessManager {
             start_time: Arc::new(Mutex::new(None)),
             last_error: Arc::new(Mutex::new(None)),
             restart_count: Arc::new(Mutex::new(0)),
+            running: Arc::new(Mutex::new(false)),
+            pid: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -170,19 +181,27 @@ impl CoreProcessManager {
             anyhow::bail!("{} exited immediately with code {}", self.core_name(), code);
         }
 
-        let pid = child.id().unwrap_or(0);
-        info!("{} started (pid {})", self.core_name(), pid);
+        let pid = child.id();
+        info!(
+            "{} started (pid {})",
+            self.core_name(),
+            pid.unwrap_or(0)
+        );
 
         *self.child.lock().await = Some(child);
         *self.start_time.lock().await = Some(Instant::now());
         *self.last_error.lock().await = None;
         *self.restart_count.lock().await = 0;
+        *self.running.lock().await = true;
+        *self.pid.lock().await = pid;
 
         // Spawn monitor task.
         let child_arc = Arc::clone(&self.child);
         let start_time_arc = Arc::clone(&self.start_time);
         let last_error_arc = Arc::clone(&self.last_error);
         let restart_count_arc = Arc::clone(&self.restart_count);
+        let running_arc = Arc::clone(&self.running);
+        let pid_arc = Arc::clone(&self.pid);
         let config_json = config_json.to_string();
         let bin_clone = bin.clone();
         let core_type = self.core_type;
@@ -194,6 +213,8 @@ impl CoreProcessManager {
                 start_time_arc,
                 last_error_arc,
                 restart_count_arc,
+                running_arc,
+                pid_arc,
                 config_json,
                 config_path,
                 bin_clone,
@@ -205,8 +226,14 @@ impl CoreProcessManager {
     }
 
     pub async fn stop(&self) -> anyhow::Result<()> {
-        let mut child = self.child.lock().await;
-        if let Some(ref mut c) = *child {
+        // Take the child out of the mutex so we can kill and wait on it without
+        // holding the lock across an await point.
+        let child = {
+            let mut child = self.child.lock().await;
+            child.take()
+        };
+
+        if let Some(mut c) = child {
             info!(
                 "Stopping {} (pid {})",
                 self.core_name(),
@@ -215,33 +242,23 @@ impl CoreProcessManager {
             let _ = c.start_kill();
             let _ = c.wait().await;
         }
-        *child = None;
+
+        *self.running.lock().await = false;
+        *self.pid.lock().await = None;
         *self.start_time.lock().await = None;
         *self.restart_count.lock().await = 0;
         Ok(())
     }
 
     pub async fn is_running(&self) -> bool {
-        let mut child = self.child.lock().await;
-        if let Some(ref mut c) = *child {
-            match c.try_wait() {
-                Ok(None) => return true,
-                Ok(Some(_)) => {
-                    *child = None;
-                    return false;
-                }
-                Err(_) => {
-                    *child = None;
-                    return false;
-                }
-            }
-        }
-        false
+        *self.running.lock().await
     }
 
     pub async fn status(&self) -> (Option<u32>, Option<u64>, Option<String>) {
-        let child = self.child.lock().await;
-        let pid = child.as_ref().and_then(|c| c.id());
+        // Quick snapshot: grab cached PID and metadata under separate locks;
+        // never block on the child mutex here because the monitor may hold the
+        // child across a wait.
+        let pid = *self.pid.lock().await;
         let start_time = *self.start_time.lock().await;
         let uptime = start_time.map(|t| t.elapsed().as_secs());
         let last_error = self.last_error.lock().await.clone();
@@ -269,28 +286,36 @@ async fn monitor(
     start_time_arc: Arc<Mutex<Option<Instant>>>,
     last_error_arc: Arc<Mutex<Option<String>>>,
     restart_count_arc: Arc<Mutex<usize>>,
+    running_arc: Arc<Mutex<bool>>,
+    pid_arc: Arc<Mutex<Option<u32>>>,
     config_json: String,
     config_path: PathBuf,
     bin: PathBuf,
 ) {
     loop {
-        let exit_status = {
-            let mut child_guard = child_arc.lock().await;
-            if let Some(ref mut child) = *child_guard {
-                match child.wait().await {
-                    Ok(status) => Some(status),
-                    Err(e) => {
-                        error!("Failed to wait for {}: {}", core_name(core_type), e);
-                        Some(std::process::ExitStatus::default())
-                    }
+        // Take the child out of the mutex so we can wait on it without holding
+        // the lock. API calls can still lock the mutex to inspect the child.
+        let mut child = {
+            let mut guard = child_arc.lock().await;
+            guard.take()
+        };
+
+        let exit_status = if let Some(ref mut c) = child {
+            match c.wait().await {
+                Ok(status) => Some(status),
+                Err(e) => {
+                    error!("Failed to wait for {}: {}", core_name(core_type), e);
+                    Some(std::process::ExitStatus::default())
                 }
-            } else {
-                None
             }
+        } else {
+            None
         };
 
         if exit_status.is_none() {
             // Manager was stopped.
+            *running_arc.lock().await = false;
+            *pid_arc.lock().await = None;
             break;
         }
 
@@ -301,6 +326,7 @@ async fn monitor(
             core_name(core_type),
             code
         ));
+        *pid_arc.lock().await = None;
 
         let mut restart_count = restart_count_arc.lock().await;
         if *restart_count >= MAX_RESTART_ATTEMPTS {
@@ -309,6 +335,7 @@ async fn monitor(
                 core_name(core_type)
             );
             *start_time_arc.lock().await = None;
+            *running_arc.lock().await = false;
             break;
         }
         *restart_count += 1;
@@ -328,6 +355,8 @@ async fn monitor(
         // Rewrite config (path is reused).
         if fs::write(&config_path, &config_json).await.is_err() {
             error!("Failed to rewrite {} config", core_name(core_type));
+            *running_arc.lock().await = false;
+            *pid_arc.lock().await = None;
             break;
         }
 
@@ -340,9 +369,9 @@ async fn monitor(
             .kill_on_drop(true)
             .spawn()
         {
-            Ok(mut child) => {
+            Ok(mut new_child) => {
                 sleep(Duration::from_millis(300)).await;
-                if child.try_wait().ok().flatten().is_some() {
+                if new_child.try_wait().ok().flatten().is_some() {
                     error!("Restarted {} exited immediately", core_name(core_type));
                     *last_error_arc.lock().await = Some(format!(
                         "Restarted {} exited immediately",
@@ -350,21 +379,28 @@ async fn monitor(
                     ));
                     let mut guard = child_arc.lock().await;
                     *guard = None;
+                    *running_arc.lock().await = false;
+                    *pid_arc.lock().await = None;
                     break;
                 }
+                let new_pid = new_child.id();
                 info!(
                     "{} restarted (pid {})",
                     core_name(core_type),
-                    child.id().unwrap_or(0)
+                    new_pid.unwrap_or(0)
                 );
                 *start_time_arc.lock().await = Some(Instant::now());
+                *pid_arc.lock().await = new_pid;
+                child = Some(new_child);
                 let mut guard = child_arc.lock().await;
-                *guard = Some(child);
+                *guard = child;
             }
             Err(e) => {
                 error!("Failed to restart {}: {}", core_name(core_type), e);
                 *last_error_arc.lock().await =
                     Some(format!("Failed to restart {}: {}", core_name(core_type), e));
+                *running_arc.lock().await = false;
+                *pid_arc.lock().await = None;
                 break;
             }
         }
