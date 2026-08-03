@@ -1,27 +1,32 @@
-import {
-  type AddSubscriptionRequest,
-  type AddSplitTunnelRuleRequest,
-  type AppConfig,
-  type BackendCapabilities,
-  type BackendType,
-  type ConfigResponse,
-  type HealthResponse,
-  type HwidResponse,
-  type NodeWithSubscription,
-  type ProxyStatus,
-  type SplitTunnelAction,
-  type SplitTunnelRule,
-  type SplitTunnelTarget,
-  type StartProxyRequest,
-  type StoredSubscription,
-  type SubscriptionDetail,
-  type UpdateSplitTunnelRuleRequest,
-} from "./types";
+import { api } from "@/api/client";
+import type { components } from "@/api/schema";
 
-export const API_BASE_URL =
-  typeof process !== "undefined" && process.env.NEXT_PUBLIC_API_URL
-    ? process.env.NEXT_PUBLIC_API_URL
-    : "http://127.0.0.1:3001";
+export type AddSubscriptionRequest =
+  components["schemas"]["AddSubscriptionRequest"];
+export type AddSplitTunnelRuleRequest =
+  components["schemas"]["AddSplitTunnelRuleRequest"];
+export type AppConfig = components["schemas"]["AppConfig"];
+export type BackendCapabilities =
+  components["schemas"]["BackendCapabilities"];
+export type BackendCapability = components["schemas"]["BackendCapability"];
+export type BackendType = components["schemas"]["BackendType"];
+export type ConfigResponse = components["schemas"]["ConfigResponse"];
+export type HealthResponse = components["schemas"]["HealthResponse"];
+export type HwidInfo = components["schemas"]["HwidInfo"];
+export type HwidResponse = components["schemas"]["HwidResponse"];
+export type NodeWithSubscription = components["schemas"]["NodeWithSubscription"];
+export type ProxyNode = components["schemas"]["ProxyNode"];
+export type ProxyStatus = components["schemas"]["ProxyStatus"];
+export type SplitTunnelAction = components["schemas"]["SplitTunnelAction"];
+export type SplitTunnelRule = components["schemas"]["SplitTunnelRule"];
+export type SplitTunnelTarget = components["schemas"]["SplitTunnelTarget"];
+export type StartProxyRequest = components["schemas"]["StartProxyRequest"];
+export type StoredSubscription = components["schemas"]["StoredSubscription"];
+export type SubscriptionDetail = components["schemas"]["SubscriptionDetail"];
+export type SubscriptionMetadata =
+  components["schemas"]["SubscriptionMetadata"];
+export type UpdateSplitTunnelRuleRequest =
+  components["schemas"]["UpdateSplitTunnelRuleRequest"];
 
 class ApiError extends Error {
   status: number;
@@ -32,90 +37,69 @@ class ApiError extends Error {
   }
 }
 
-async function parseJson<T>(response: Response): Promise<T> {
-  if (response.status === 204) {
-    return undefined as T;
+async function unwrap<T>(
+  call: Promise<{ data?: T; error?: unknown }>
+): Promise<T> {
+  const { data, error } = await call;
+  if (error) {
+    if (error instanceof Response) {
+      let message = "Unknown API error";
+      try {
+        const body = (await error.json()) as { error?: string };
+        if (body.error) message = body.error;
+      } catch {
+        // ignore parse error
+      }
+      throw new ApiError(error.status, message);
+    }
+    if (error instanceof Error) {
+      throw new ApiError(0, error.message);
+    }
+    throw new ApiError(0, String(error));
   }
-  if (response.ok) {
-    return (await response.json()) as T;
+  if (data === undefined) {
+    throw new ApiError(204, "No content");
   }
-  let message = "Unknown API error";
-  try {
-    const data = (await response.json()) as { error?: string };
-    if (data.error) message = data.error;
-  } catch {
-    // ignore parse error
-  }
-  throw new ApiError(response.status, message);
-}
-
-async function get<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-  });
-  return parseJson<T>(res);
-}
-
-async function post<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  return parseJson<T>(res);
-}
-
-async function put<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "PUT",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  return parseJson<T>(res);
-}
-
-async function del<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, {
-    method: "DELETE",
-    headers: { Accept: "application/json" },
-  });
-  return parseJson<T>(res);
+  return data;
 }
 
 export class IronpassApi {
   static health(): Promise<HealthResponse> {
-    return get("/api/v1/health");
+    return unwrap(api.GET("/api/v1/health"));
   }
 
   static backendCapabilities(): Promise<BackendCapabilities> {
-    return get("/api/v1/backend/capabilities");
+    return unwrap(api.GET("/api/v1/backend/capabilities"));
   }
 
   static getConfig(): Promise<AppConfig> {
-    return get<ConfigResponse>("/api/v1/config").then((r) => r.config);
+    return unwrap(
+      api.GET("/api/v1/config").then((r) => ({
+        data: r.data?.config,
+        error: r.error,
+      }))
+    );
   }
 
   static putConfig(config: AppConfig): Promise<AppConfig> {
-    return put<ConfigResponse>("/api/v1/config", config).then((r) => r.config);
+    return unwrap(
+      api.PUT("/api/v1/config", { body: config }).then((r) => ({
+        data: r.data?.config,
+        error: r.error,
+      }))
+    );
   }
 
   static getHwid(): Promise<HwidResponse> {
-    return get("/api/v1/hwid");
+    return unwrap(api.GET("/api/v1/hwid"));
   }
 
   static regenerateHwid(): Promise<HwidResponse> {
-    return put("/api/v1/hwid/regenerate");
+    return unwrap(api.PUT("/api/v1/hwid/regenerate"));
   }
 
   static listSubscriptions(): Promise<StoredSubscription[]> {
-    return get("/api/v1/subscriptions");
+    return unwrap(api.GET("/api/v1/subscriptions"));
   }
 
   static addSubscription(
@@ -124,59 +108,49 @@ export class IronpassApi {
     hwid?: string | null
   ): Promise<StoredSubscription> {
     const body: AddSubscriptionRequest = { url, name, hwid };
-    return post("/api/v1/subscriptions", body);
+    return unwrap(api.POST("/api/v1/subscriptions", { body }));
   }
 
   static getSubscription(id: string): Promise<SubscriptionDetail> {
-    return get(`/api/v1/subscriptions/${encodeURIComponent(id)}`);
+    return unwrap(api.GET("/api/v1/subscriptions/{id}", { params: { path: { id } } }));
   }
 
   static deleteSubscription(id: string): Promise<unknown> {
-    return del(`/api/v1/subscriptions/${encodeURIComponent(id)}`);
+    return unwrap(api.DELETE("/api/v1/subscriptions/{id}", { params: { path: { id } } }));
   }
 
   static fetchSubscription(
     id: string,
     hwid?: string | null
   ): Promise<SubscriptionDetail> {
-    const params = new URLSearchParams();
-    if (hwid) params.set("hwid", hwid);
-    const query = params.toString();
-    return put(
-      `/api/v1/subscriptions/${encodeURIComponent(id)}/fetch${
-        query ? `?${query}` : ""
-      }`
-    );
+    const params = hwid ? { path: { id }, query: { hwid } } : { path: { id } };
+    return unwrap(api.PUT("/api/v1/subscriptions/{id}/fetch", { params }));
   }
 
   static listNodes(subscriptionId?: string | null): Promise<NodeWithSubscription[]> {
-    const path = subscriptionId
-      ? `/api/v1/nodes?subscription=${encodeURIComponent(subscriptionId)}`
-      : "/api/v1/nodes";
-    return get(path);
+    const params = subscriptionId ? { query: { subscription: subscriptionId } } : {};
+    return unwrap(api.GET("/api/v1/nodes", { params }));
   }
 
   static selectNode(id: string): Promise<NodeWithSubscription> {
-    return put(`/api/v1/nodes/${encodeURIComponent(id)}/select`);
+    return unwrap(api.PUT("/api/v1/nodes/{id}/select", { params: { path: { id } } }));
   }
 
   static proxyStatus(): Promise<ProxyStatus> {
-    return get("/api/v1/proxy/status");
+    return unwrap(api.GET("/api/v1/proxy/status"));
   }
 
   static startProxy(req: StartProxyRequest): Promise<ProxyStatus> {
-    return post("/api/v1/proxy/start", req);
+    return unwrap(api.POST("/api/v1/proxy/start", { body: req }));
   }
 
   static stopProxy(): Promise<ProxyStatus> {
-    return post("/api/v1/proxy/stop");
+    return unwrap(api.POST("/api/v1/proxy/stop"));
   }
 
   static listSplitTunnelRules(nodeId?: string | null): Promise<SplitTunnelRule[]> {
-    const path = nodeId
-      ? `/api/v1/split-tunnel?node=${encodeURIComponent(nodeId)}`
-      : "/api/v1/split-tunnel";
-    return get(path);
+    const params = nodeId ? { query: { node: nodeId } } : {};
+    return unwrap(api.GET("/api/v1/split-tunnel", { params }));
   }
 
   static addSplitTunnelRule(
@@ -186,7 +160,7 @@ export class IronpassApi {
     nodeId?: string | null
   ): Promise<SplitTunnelRule> {
     const body: AddSplitTunnelRuleRequest = { target, value, action, node_id: nodeId };
-    return post("/api/v1/split-tunnel", body);
+    return unwrap(api.POST("/api/v1/split-tunnel", { body }));
   }
 
   static updateSplitTunnelRule(
@@ -202,17 +176,19 @@ export class IronpassApi {
       action,
       node_id: nodeId,
     };
-    return put(`/api/v1/split-tunnel/${encodeURIComponent(id)}`, body);
+    return unwrap(
+      api.PUT("/api/v1/split-tunnel/{id}", { params: { path: { id } }, body })
+    );
   }
 
   static deleteSplitTunnelRule(id: string): Promise<unknown> {
-    return del(`/api/v1/split-tunnel/${encodeURIComponent(id)}`);
+    return unwrap(api.DELETE("/api/v1/split-tunnel/{id}", { params: { path: { id } } }));
   }
 }
 
 export const backendOptions: { value: BackendType; label: string }[] = [
   { value: "auto", label: "Auto" },
-  { value: "sing-box", label: "sing-box" },
+  { value: "sing_box", label: "sing-box" },
   { value: "xray", label: "Xray" },
 ];
 

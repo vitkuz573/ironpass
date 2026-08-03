@@ -243,7 +243,7 @@ export default function DashboardPage() {
               <>
                 <div className="text-2xl font-bold">{subscriptions.length}</div>
                 <p className="text-xs text-muted-foreground">
-                  {subscriptions.reduce((acc, s) => acc + (s.metadata?.expire ? 1 : 0), 0)}{" "}
+                  {subscriptions.reduce((acc, s) => acc + (s.expires_at ? 1 : 0), 0)}{" "}
                   with expiry info
                 </p>
               </>

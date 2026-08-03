@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "generate-api": "curl -s http://127.0.0.1:8080/api-docs/openapi.json -o api/openapi.json && openapi-typescript api/openapi.json -o api/schema.d.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.23",
@@ -35,6 +36,8 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.12",
+    "openapi-fetch": "^0.17.0",
+    "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

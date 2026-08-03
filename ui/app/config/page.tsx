@@ -43,21 +43,21 @@ export default function ConfigPage() {
       <div className="grid gap-4 sm:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>Config path</CardTitle>
+            <CardTitle>General</CardTitle>
           </CardHeader>
           <CardContent>
             <code className="rounded bg-muted px-2 py-1 text-sm break-all">
-              {config?.config_path ?? "—"}
+              {config?.general?.user_agent ?? "—"}
             </code>
           </CardContent>
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle>Data directory</CardTitle>
+            <CardTitle>Logging</CardTitle>
           </CardHeader>
           <CardContent>
             <code className="rounded bg-muted px-2 py-1 text-sm break-all">
-              {config?.data_dir ?? "—"}
+              {config?.logging?.level ?? "—"}
             </code>
           </CardContent>
         </Card>

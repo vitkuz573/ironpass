@@ -9,6 +9,15 @@ const eslintConfig = defineConfig([
     rules: {
       // Initial data fetches are acceptable for client pages without SSR.
       "react-hooks/set-state-in-effect": "off",
+      // Ban raw fetch() calls to enforce the typed OpenAPI client.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.name='fetch']",
+          message:
+            "Raw fetch() is not allowed; use the typed api client from @/api/client or @/lib/api.",
+        },
+      ],
     },
   },
   // Override default ignores of eslint-config-next.

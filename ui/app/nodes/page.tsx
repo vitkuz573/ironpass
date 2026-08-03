@@ -70,8 +70,8 @@ export default function NodesPage() {
       result = result.filter(
         (n) =>
           n.node.name.toLowerCase().includes(term) ||
-          (n.node.protocol?.toLowerCase() ?? "").includes(term) ||
-          (n.node.address?.toLowerCase() ?? "").includes(term)
+          n.node.protocol.toLowerCase().includes(term) ||
+          (n.node.server?.toLowerCase() ?? "").includes(term)
       );
     }
     return result;
@@ -165,11 +165,11 @@ export default function NodesPage() {
                       {node.subscription_name ?? "—"}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {node.node.protocol ?? "—"}
+                      {node.node.protocol}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {node.node.address
-                        ? `${node.node.address}:${node.node.port ?? ""}`
+                      {node.node.server
+                        ? `${node.node.server}:${node.node.port ?? ""}`
                         : "—"}
                     </TableCell>
                     <TableCell>

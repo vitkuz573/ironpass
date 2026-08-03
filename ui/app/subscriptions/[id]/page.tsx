@@ -240,10 +240,10 @@ function NodeRow({
     <TableRow>
       <TableCell className="font-medium">{node.node.name}</TableCell>
       <TableCell className="text-muted-foreground">
-        {node.node.protocol ?? "—"}
+        {node.node.protocol}
       </TableCell>
       <TableCell className="text-muted-foreground">
-        {node.node.address ? `${node.node.address}:${node.node.port ?? ""}` : "—"}
+        {node.node.server ? `${node.node.server}:${node.node.port ?? ""}` : "—"}
       </TableCell>
       <TableCell>
         <Button
