@@ -172,7 +172,21 @@ impl SubscriptionParser {
             host: get_param("host"),
             service_name: get_param("serviceName"),
             alpn: get_param("alpn").map(|a| a.split(',').map(String::from).collect()),
-            extra: None,
+            extra: {
+                let mut extra = get_param("extra")
+                    .and_then(|raw| XhttpExtra::parse(&raw).ok())
+                    .unwrap_or_default();
+                if extra.mode.is_none()
+                    && let Some(mode) = get_param("mode")
+                {
+                    extra.mode = Some(mode);
+                }
+                if extra == XhttpExtra::default() {
+                    None
+                } else {
+                    Some(extra)
+                }
+            },
             tags: Vec::new(),
             raw_uri: uri.to_string(),
         })
@@ -704,6 +718,50 @@ ss://ZXhhbXBsZS5jb206MTA4MA==#SS
         assert_eq!(n.encryption.as_deref().unwrap(), "auto");
         assert_eq!(n.security, Security::None);
         assert_eq!(n.transport, Transport::Tcp);
+    }
+
+    #[test]
+    fn parse_vless_xhttp_extra_from_query() {
+        let extra = r#"{"mode":"stream-up","maxConnections":4,"xPaddingBytes":"100-200","xmux":{"maxConnections":8},"headers":{"X-Custom":"value"}}"#;
+        let encoded_extra: String = url::form_urlencoded::byte_serialize(extra.as_bytes()).collect();
+        let uri = format!(
+            "vless://uuid@example.com:443?encryption=none&type=xhttp&extra={}#XHTTP",
+            encoded_extra
+        );
+        let n = parser().parse_vless(&uri).unwrap();
+        assert_eq!(n.transport, Transport::Xhttp);
+        let extra = n.extra.as_ref().unwrap();
+        assert_eq!(extra.mode.as_deref().unwrap(), "stream-up");
+        assert_eq!(extra.max_connections, Some(4));
+        assert_eq!(extra.x_padding_bytes.as_deref().unwrap(), "100-200");
+        assert_eq!(
+            extra.headers.get("X-Custom").map(String::as_str),
+            Some("value")
+        );
+        assert!(extra.other.contains_key("xmux"));
+    }
+
+    #[test]
+    fn parse_vless_top_level_mode_falls_back_to_extra_mode() {
+        let uri = "vless://uuid@example.com:443?encryption=none&type=xhttp&mode=packet-up#XHTTP";
+        let n = parser().parse_vless(uri).unwrap();
+        assert_eq!(n.transport, Transport::Xhttp);
+        let extra = n.extra.as_ref().unwrap();
+        assert_eq!(extra.mode.as_deref().unwrap(), "packet-up");
+    }
+
+    #[test]
+    fn parse_vless_extra_mode_takes_precedence_over_top_level_mode() {
+        let extra = r#"{"mode":"stream-up"}"#;
+        let encoded_extra: String = url::form_urlencoded::byte_serialize(extra.as_bytes()).collect();
+        let uri = format!(
+            "vless://uuid@example.com:443?encryption=none&type=xhttp&mode=auto&extra={}#XHTTP",
+            encoded_extra
+        );
+        let n = parser().parse_vless(&uri).unwrap();
+        assert_eq!(n.transport, Transport::Xhttp);
+        let extra = n.extra.as_ref().unwrap();
+        assert_eq!(extra.mode.as_deref().unwrap(), "stream-up");
     }
 
     #[test]

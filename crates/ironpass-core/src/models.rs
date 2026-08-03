@@ -161,6 +161,9 @@ pub struct XhttpExtra {
     /// Optional request headers merged into the HTTP upgrade request.
     #[serde(default)]
     pub headers: HashMap<String, String>,
+    /// Additional XHTTP tuning fields not modelled explicitly (e.g. `xmux`).
+    #[serde(flatten, default)]
+    pub other: HashMap<String, serde_json::Value>,
 }
 
 impl XhttpExtra {

@@ -339,6 +339,10 @@ fn build_transport(node: &ProxyNode, outbound: &mut Map<String, Value>) -> anyho
 }
 
 fn apply_xhttp_extra(t: &mut Map<String, Value>, extra: &XhttpExtra) {
+    // Forward any fields from the raw `extra` blob that are not modelled explicitly.
+    for (k, v) in &extra.other {
+        t.insert(k.clone(), v.clone());
+    }
     if let Some(ref mode) = extra.mode {
         t.insert("mode".into(), mode.clone().into());
     }
@@ -586,6 +590,7 @@ mod tests {
                 h.insert("X-Custom".into(), "value".into());
                 h
             },
+            ..Default::default()
         });
 
         let cfg = generate_config(
@@ -618,6 +623,50 @@ mod tests {
         assert_eq!(headers.get("X-Custom").unwrap(), "value");
         assert!(cfg.socks_port.is_some());
         assert!(cfg.http_port.is_some());
+    }
+
+    #[test]
+    fn vless_xhttp_raw_extra_fields_are_forwarded() {
+        let mut node = sample_vless_reality();
+        node.transport = Transport::Xhttp;
+        node.security = Security::Tls;
+        node.path = Some("/xhttp".into());
+        node.host = Some("host.example.com".into());
+        node.extra = Some(XhttpExtra {
+            mode: Some("stream-up".into()),
+            x_padding_bytes: Some("100-200".into()),
+            other: {
+                let mut m = std::collections::HashMap::new();
+                let mut xmux = Map::new();
+                xmux.insert("maxConnections".into(), 8.into());
+                m.insert("xmux".into(), Value::Object(xmux));
+                m
+            },
+            ..Default::default()
+        });
+
+        let cfg = generate_config(
+            &node,
+            InboundPorts {
+                socks_port: Some(1080),
+                ..Default::default()
+            },
+            &[],
+            GeoAssetStatus::new(true),
+        )
+        .unwrap();
+
+        let value: Value = serde_json::from_str(&cfg.json).unwrap();
+        let outbounds = value.get("outbounds").unwrap().as_array().unwrap();
+        let proxy = outbounds
+            .iter()
+            .find(|o| o.get("tag").unwrap() == "proxy")
+            .unwrap();
+        let xhttp = proxy["streamSettings"]["xhttpSettings"].as_object().unwrap();
+        assert_eq!(xhttp.get("mode").unwrap(), "stream-up");
+        assert_eq!(xhttp.get("xPaddingBytes").unwrap(), "100-200");
+        let xmux = xhttp.get("xmux").unwrap().as_object().unwrap();
+        assert_eq!(xmux.get("maxConnections").unwrap(), 8);
     }
 
     #[test]

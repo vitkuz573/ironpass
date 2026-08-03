@@ -536,6 +536,7 @@ mod tests {
             no_grpc_header: Some(false),
             x_padding_bytes: Some("100-200".into()),
             headers: HashMap::new(),
+            ..Default::default()
         });
 
         let cfg = generate_config(
@@ -576,6 +577,7 @@ mod tests {
             no_grpc_header: Some(false),
             x_padding_bytes: Some("100-200".into()),
             headers: HashMap::new(),
+            ..Default::default()
         });
 
         let cfg = generate_config(
